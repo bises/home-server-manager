@@ -1,0 +1,148 @@
+.container-card {
+  background: white;
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  padding: 25px;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.container-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.card-header h2 {
+  color: #667eea;
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.spinner {
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #667eea;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.card-content {
+  margin-bottom: 20px;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.status-row:last-child {
+  border-bottom: none;
+}
+
+.label {
+  font-weight: 600;
+  color: #666;
+}
+
+.value {
+  color: #333;
+  font-weight: 500;
+}
+
+.state-badge {
+  color: white;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.error-message {
+  padding: 15px;
+  background: #ffebee;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.error-message p {
+  color: #c62828;
+  margin: 0;
+}
+
+.no-data {
+  padding: 20px;
+  text-align: center;
+  color: #999;
+}
+
+.card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+}
+
+.btn {
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-start {
+  background: linear-gradient(135deg, #4caf50, #45a049);
+}
+
+.btn-start:hover:not(:disabled) {
+  background: linear-gradient(135deg, #45a049, #3d8b40);
+  transform: translateY(-2px);
+}
+
+.btn-stop {
+  background: linear-gradient(135deg, #f44336, #d32f2f);
+}
+
+.btn-stop:hover:not(:disabled) {
+  background: linear-gradient(135deg, #d32f2f, #c62828);
+  transform: translateY(-2px);
+}
+
+.btn-refresh {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.btn-refresh:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5568d3, #6a3f8f);
+  transform: translateY(-2px);
+}
+
+@media (max-width: 480px) {
+  .card-actions {
+    grid-template-columns: 1fr;
+  }
+}

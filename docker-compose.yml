@@ -1,0 +1,12 @@
+services:
+  home-server-api:
+    build: .
+    container_name: home-server-api
+    ports:
+      - "8080:5000"
+    environment:
+      - DOCKER_COMPOSE_PATH_IMMICH=/home/jbhouse/imicha/docker-compose.yml
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock # To allow Docker commands from within container
+    restart: unless-stopped
