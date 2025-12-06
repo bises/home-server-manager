@@ -7,6 +7,19 @@ function App() {
     { name: "immich", status: null, loading: true },
   ]);
 
+  // Extract services from API response and add them to the container list
+  const syncServicesFromStatus = async () => {
+    const statusData = await fetchContainerStatus("immich");
+    if (statusData.containers && Array.isArray(statusData.containers)) {
+      const services = statusData.containers.map((container) => ({
+        name: container.Service,
+        status: { containers: [container], status: "success" },
+        loading: false,
+      }));
+      setContainers(services);
+    }
+  };
+
   const fetchContainerStatus = async (containerName) => {
     try {
       const response = await fetch(`/api/docker/status/${containerName}`);
@@ -33,7 +46,7 @@ function App() {
   };
 
   useEffect(() => {
-    updateContainerStatuses();
+    syncServicesFromStatus();
   }, []);
 
   const handleAction = async (containerName, action) => {
