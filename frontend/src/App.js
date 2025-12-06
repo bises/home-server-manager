@@ -65,6 +65,36 @@ function App() {
     }
   };
 
+  const handleAction = async (containerName, action) => {
+    // Update loading state for the targeted container
+    setContainers((prev) =>
+      prev.map((c) => (c.name === containerName ? { ...c, loading: true } : c))
+    );
+
+    try {
+      const endpoint =
+        action === "restart"
+          ? `/api/docker/restart/${containerName}?compose_key=immich`
+          : `/api/docker/${action}/${containerName}`;
+
+      const response = await fetch(endpoint);
+      const data = await response.json();
+
+      // Wait a bit for Docker to update and then refresh statuses
+      setTimeout(() => {
+        syncServicesFromStatus();
+      }, 2000);
+
+      return data;
+    } catch (error) {
+      console.error(`Error performing ${action} on ${containerName}:`, error);
+      // Restore loading=false on error
+      setContainers((prev) =>
+        prev.map((c) => (c.name === containerName ? { ...c, loading: false } : c))
+      );
+    }
+  };
+
   return (
     <div className="App">
       <header className="App-header">
