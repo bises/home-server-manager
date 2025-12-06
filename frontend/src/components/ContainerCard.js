@@ -70,6 +70,13 @@ function ContainerCard({ container, onAction, onRefresh }) {
           ▶️ Start
         </button>
         <button
+          className="btn btn-restart"
+          onClick={() => onAction(name, "restart")}
+          disabled={loading || !isRunning}
+        >
+          🔄 Restart
+        </button>
+        <button
           className="btn btn-stop"
           onClick={() => onAction(name, "down")}
           disabled={loading || !isRunning}
@@ -81,7 +88,7 @@ function ContainerCard({ container, onAction, onRefresh }) {
           onClick={onRefresh}
           disabled={loading}
         >
-          🔄 Refresh
+          🔃 Refresh
         </button>
       </div>
     </div>

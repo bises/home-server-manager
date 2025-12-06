@@ -54,7 +54,7 @@ def hello():
 
 @app.route('/api/docker/up/<container_name>', methods=['GET'])
 def docker_up(container_name):
-    """Run docker compose up -d using the configured docker-compose file for the specified container"""
+    """Start a specific service or run docker compose up -d for the configured docker-compose file"""
     try:
         # Get docker-compose file path from environment variable based on container name
         env_var_name = f'DOCKER_COMPOSE_PATH_{container_name.upper()}'
@@ -73,9 +73,9 @@ def docker_up(container_name):
                 'message': f'Docker compose file not found at: {docker_compose_path}'
             }), 404
         
-        # Run docker compose up -d
+        # Run docker compose up -d for specific service
         result = subprocess.run(
-            ['docker-compose', '-f', docker_compose_path, 'up', '-d'],
+            ['docker-compose', '-f', docker_compose_path, 'up', '-d', container_name],
             capture_output=True,
             text=True,
             timeout=300  # 5 minute timeout
@@ -111,7 +111,7 @@ def docker_up(container_name):
 
 @app.route('/api/docker/down/<container_name>', methods=['GET'])
 def docker_down(container_name):
-    """Run docker compose down using the configured docker-compose file for the specified container"""
+    """Stop and remove a specific service using the configured docker-compose file"""
     try:
         # Get docker-compose file path from environment variable based on container name
         env_var_name = f'DOCKER_COMPOSE_PATH_{container_name.upper()}'
@@ -130,9 +130,9 @@ def docker_down(container_name):
                 'message': f'Docker compose file not found at: {docker_compose_path}'
             }), 404
         
-        # Run docker compose down
+        # Run docker compose down for specific service
         result = subprocess.run(
-            ['docker-compose', '-f', docker_compose_path, 'down'],
+            ['docker-compose', '-f', docker_compose_path, 'down', container_name],
             capture_output=True,
             text=True,
             timeout=300  # 5 minute timeout
@@ -163,6 +163,170 @@ def docker_down(container_name):
         return jsonify({
             'status': 'error',
             'container': container_name,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/docker/restart/<service_name>', methods=['GET'])
+def docker_restart_service(service_name):
+    """Restart a specific service using docker compose"""
+    try:
+        # Get docker-compose file path - use the main container name (from query params or default to 'immich')
+        compose_key = request.args.get('compose_key', 'immich').upper()
+        env_var_name = f'DOCKER_COMPOSE_PATH_{compose_key}'
+        docker_compose_path = os.getenv(env_var_name)
+        
+        if not docker_compose_path:
+            return jsonify({
+                'status': 'error',
+                'message': f'Environment variable {env_var_name} not found'
+            }), 404
+        
+        # Check if docker-compose file exists
+        if not os.path.exists(docker_compose_path):
+            return jsonify({
+                'status': 'error',
+                'message': f'Docker compose file not found at: {docker_compose_path}'
+            }), 404
+        
+        # Run docker compose restart for specific service
+        result = subprocess.run(
+            ['docker-compose', '-f', docker_compose_path, 'restart', service_name],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'status': 'success',
+                'service': service_name,
+                'message': 'Service restarted successfully',
+                'output': result.stdout
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'service': service_name,
+                'message': 'Service restart failed',
+                'error': result.stderr
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'status': 'error',
+            'service': service_name,
+            'message': 'Service restart timed out'
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'service': service_name,
+            'message': str(e)
+        }), 500
+
+@app.route('/api/docker/down-all/<container_name>', methods=['GET'])
+def docker_down_all(container_name):
+    """Run docker compose down to stop and remove all containers"""
+    try:
+        # Get docker-compose file path from environment variable based on container name
+        env_var_name = f'DOCKER_COMPOSE_PATH_{container_name.upper()}'
+        docker_compose_path = os.getenv(env_var_name)
+        
+        if not docker_compose_path:
+            return jsonify({
+                'status': 'error',
+                'message': f'Environment variable {env_var_name} not found'
+            }), 404
+        
+        # Check if docker-compose file exists
+        if not os.path.exists(docker_compose_path):
+            return jsonify({
+                'status': 'error',
+                'message': f'Docker compose file not found at: {docker_compose_path}'
+            }), 404
+        
+        # Run docker compose down (all services)
+        result = subprocess.run(
+            ['docker-compose', '-f', docker_compose_path, 'down'],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'status': 'success',
+                'message': 'All containers stopped and removed successfully',
+                'output': result.stdout
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to stop and remove containers',
+                'error': result.stderr
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'status': 'error',
+            'message': 'Docker compose down timed out'
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/docker/restart-all/<container_name>', methods=['GET'])
+def docker_restart_all(container_name):
+    """Restart all containers using docker compose"""
+    try:
+        # Get docker-compose file path from environment variable based on container name
+        env_var_name = f'DOCKER_COMPOSE_PATH_{container_name.upper()}'
+        docker_compose_path = os.getenv(env_var_name)
+        
+        if not docker_compose_path:
+            return jsonify({
+                'status': 'error',
+                'message': f'Environment variable {env_var_name} not found'
+            }), 404
+        
+        # Check if docker-compose file exists
+        if not os.path.exists(docker_compose_path):
+            return jsonify({
+                'status': 'error',
+                'message': f'Docker compose file not found at: {docker_compose_path}'
+            }), 404
+        
+        # Run docker compose restart (all services)
+        result = subprocess.run(
+            ['docker-compose', '-f', docker_compose_path, 'restart'],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'status': 'success',
+                'message': 'All containers restarted successfully',
+                'output': result.stdout
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to restart containers',
+                'error': result.stderr
+            }), 500
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'status': 'error',
+            'message': 'Docker compose restart timed out'
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
             'message': str(e)
         }), 500
 

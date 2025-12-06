@@ -94,7 +94,7 @@
 
 .card-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 10px;
 }
 
@@ -123,6 +123,15 @@
   transform: translateY(-2px);
 }
 
+.btn-restart {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+}
+
+.btn-restart:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5568d3, #6a3f8f);
+  transform: translateY(-2px);
+}
+
 .btn-stop {
   background: linear-gradient(135deg, #f44336, #d32f2f);
 }
@@ -133,16 +142,16 @@
 }
 
 .btn-refresh {
-  background: linear-gradient(135deg, #667eea, #764ba2);
+  background: linear-gradient(135deg, #ff9800, #f57c00);
 }
 
 .btn-refresh:hover:not(:disabled) {
-  background: linear-gradient(135deg, #5568d3, #6a3f8f);
+  background: linear-gradient(135deg, #f57c00, #e65100);
   transform: translateY(-2px);
 }
 
 @media (max-width: 480px) {
   .card-actions {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr 1fr;
   }
 }
