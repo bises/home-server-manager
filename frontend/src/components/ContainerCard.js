@@ -1,7 +1,8 @@
+import { useState } from "react";
 import "./ContainerCard.css";
 
-function ContainerCard({ container, onAction, onRefresh }) {
-  const { name, status, loading } = container;
+function ContainerCard({ service, status, onAction }) {
+  const [actionLoading, setActionLoading] = useState(false);
 
   const getStateColor = (state) => {
     if (!state) return "#999";
@@ -17,79 +18,107 @@ function ContainerCard({ container, onAction, onRefresh }) {
     }
   };
 
-  const containerData = status?.containers?.[0];
-  const isRunning = containerData?.State?.toLowerCase() === "running";
+  const isDown = !status;
+  const isRunning = status?.State?.toLowerCase() === "running";
 
   return (
-    <div className="container-card">
+    <div className={`container-card ${isDown ? "container-down" : ""}`}>
       <div className="card-header">
-        <h2>{name.toUpperCase()}</h2>
-        {loading && <div className="spinner"></div>}
+        <h2>{service}</h2>
+        {status ? (
+          <span
+            className="status-badge"
+            style={{ backgroundColor: getStateColor(status.State) }}
+          >
+            {status.State || "Unknown"}
+          </span>
+        ) : (
+          <span className="status-badge" style={{ backgroundColor: "#999" }}>
+            DOWN
+          </span>
+        )}
       </div>
 
-      {status?.status === "error" ? (
-        <div className="error-message">
-          <p>❌ {status.message}</p>
-        </div>
-      ) : containerData ? (
+      {status && (
         <div className="card-content">
           <div className="status-row">
-            <span className="label">Service:</span>
-            <span className="value">{containerData.Service || "N/A"}</span>
-          </div>
-          <div className="status-row">
-            <span className="label">State:</span>
-            <span
-              className="value state-badge"
-              style={{ backgroundColor: getStateColor(containerData.State) }}
-            >
-              {containerData.State || "Unknown"}
-            </span>
-          </div>
-          <div className="status-row">
             <span className="label">Status:</span>
-            <span className="value">{containerData.Status || "N/A"}</span>
+            <span className="value">{status.Status || "N/A"}</span>
           </div>
           <div className="status-row">
-            <span className="label">Size:</span>
-            <span className="value">{containerData.Size || "0B"}</span>
+            <span className="label">Name:</span>
+            <span className="value">{status.Name || "N/A"}</span>
           </div>
         </div>
-      ) : (
-        <div className="no-data">
-          <p>No container data available</p>
+      )}
+
+      {isDown && (
+        <div className="card-content">
+          <p className="down-message">Container is not running</p>
         </div>
       )}
 
       <div className="card-actions">
-        <button
-          className="btn btn-start"
-          onClick={() => onAction(name, "up")}
-          disabled={loading || isRunning}
-        >
-          ▶️ Start
-        </button>
-        <button
-          className="btn btn-restart"
-          onClick={() => onAction(name, "restart")}
-          disabled={loading || !isRunning}
-        >
-          🔄 Restart
-        </button>
-        <button
-          className="btn btn-stop"
-          onClick={() => onAction(name, "down")}
-          disabled={loading || !isRunning}
-        >
-          ⏹️ Stop
-        </button>
-        <button
-          className="btn btn-refresh"
-          onClick={onRefresh}
-          disabled={loading}
-        >
-          🔃 Refresh
-        </button>
+        {isDown ? (
+          <button
+            className="btn btn-up"
+            onClick={async () => {
+              setActionLoading(true);
+              await onAction(service, "up");
+              setActionLoading(false);
+            }}
+            disabled={actionLoading}
+          >
+            🚀 Bring Up
+          </button>
+        ) : (
+          <>
+            <button
+              className="btn btn-start"
+              onClick={async () => {
+                setActionLoading(true);
+                await onAction(service, "start");
+                setActionLoading(false);
+              }}
+              disabled={actionLoading || isRunning}
+            >
+              ▶️ Start
+            </button>
+            <button
+              className="btn btn-restart"
+              onClick={async () => {
+                setActionLoading(true);
+                await onAction(service, "restart");
+                setActionLoading(false);
+              }}
+              disabled={actionLoading || !isRunning}
+            >
+              🔄 Restart
+            </button>
+            <button
+              className="btn btn-stop"
+              onClick={async () => {
+                setActionLoading(true);
+                await onAction(service, "stop");
+                setActionLoading(false);
+              }}
+              disabled={actionLoading || !isRunning}
+            >
+              ⏹️ Stop
+            </button>
+            <button
+              className="btn btn-down"
+              onClick={async () => {
+                setActionLoading(true);
+                await onAction(service, "down");
+                setActionLoading(false);
+              }}
+              disabled={actionLoading}
+            >
+              🗑️ Remove
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
