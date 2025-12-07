@@ -82,7 +82,15 @@ function App() {
   if (loading) {
     return (
       <div className="App">
-        <div className="loading">Loading services...</div>
+        <header className="App-header">
+          <h1>🐳 Home Server Manager</h1>
+          <p>Manage your Docker containers</p>
+        </header>
+        <div className="skeleton-grid">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="skeleton-card"></div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -90,7 +98,20 @@ function App() {
   if (error) {
     return (
       <div className="App">
-        <div className="error">Error: {error}</div>
+        <header className="App-header">
+          <h1>🐳 Home Server Manager</h1>
+          <p>Manage your Docker containers</p>
+        </header>
+        <div className="error">
+          <p>⚠️ Error: {error}</p>
+          <button
+            className="btn-refresh-status"
+            onClick={() => window.location.reload()}
+            style={{ marginTop: "20px" }}
+          >
+            Reload Page
+          </button>
+        </div>
       </div>
     );
   }
@@ -104,7 +125,7 @@ function App() {
 
       <div className="status-control">
         <button
-          className="btn btn-refresh-status"
+          className="btn-refresh-status"
           onClick={fetchContainerStatus}
           disabled={statusLoading}
         >
@@ -114,7 +135,9 @@ function App() {
 
       <main className="container-grid">
         {services.length === 0 ? (
-          <p>No services found</p>
+          <div className="empty-state">
+            <p>📦 No services found in your Docker Compose file</p>
+          </div>
         ) : (
           services.map((service) => (
             <ContainerCard
