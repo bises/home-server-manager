@@ -1,9 +1,40 @@
-version: "3.8"
+name: home-server
 
 services:
   test-nginx:
     image: nginx:alpine
-    container_name: immich-test
+    container_name: test-nginx
     ports:
       - "9090:80"
+    restart: unless-stopped
+
+  test-redis:
+    image: redis:alpine
+    container_name: test-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  test-postgres:
+    image: postgres:15-alpine
+    container_name: test-postgres
+    environment:
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+      POSTGRES_DB: testdb
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  home-server-api:
+    build: .
+    container_name: home-server-api
+    ports:
+      - "8080:5000"
+    environment:
+      - DOCKER_COMPOSE_PATH=/app/test-docker-compose.yml
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock # To allow Docker commands from within container
+      - ./test-docker-compose.yml:/app/test-docker-compose.yml:ro # Mount test compose file
     restart: unless-stopped

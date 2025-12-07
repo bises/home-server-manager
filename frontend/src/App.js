@@ -3,97 +3,97 @@ import "./App.css";
 import ContainerCard from "./components/ContainerCard";
 
 function App() {
-  const [containers, setContainers] = useState([
-    { name: "immich", status: null, loading: true },
-  ]);
-
-  // Extract services from API response and add them to the container list
-  const syncServicesFromStatus = async () => {
-    const statusData = await fetchContainerStatus("immich");
-    if (statusData.containers && Array.isArray(statusData.containers)) {
-      const services = statusData.containers.map((container) => ({
-        name: container.Service,
-        status: { containers: [container], status: "success" },
-        loading: false,
-      }));
-      setContainers(services);
-    }
-  };
-
-  const fetchContainerStatus = async (containerName) => {
-    try {
-      const response = await fetch(`/api/docker/status/${containerName}`);
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error(`Error fetching status for ${containerName}:`, error);
-      return { status: "error", message: error.message };
-    }
-  };
-
-  const updateContainerStatuses = async () => {
-    const updatedContainers = await Promise.all(
-      containers.map(async (container) => {
-        const statusData = await fetchContainerStatus(container.name);
-        return {
-          ...container,
-          status: statusData,
-          loading: false,
-        };
-      })
-    );
-    setContainers(updatedContainers);
-  };
+  const [services, setServices] = useState([]);
+  const [containerStatus, setContainerStatus] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    syncServicesFromStatus();
+    const initializeApp = async () => {
+      await fetchServices();
+      await fetchContainerStatus();
+    };
+    initializeApp();
   }, []);
 
-  const handleGlobalAction = async (action) => {
+  const fetchServices = async () => {
     try {
-      const response = await fetch(`/api/docker/${action}/immich`);
+      setLoading(true);
+      const response = await fetch("/api/services");
       const data = await response.json();
 
-      // Wait a bit for Docker to update
-      setTimeout(() => {
-        syncServicesFromStatus();
-      }, 2000);
-
-      return data;
-    } catch (error) {
-      console.error(`Error performing global ${action}:`, error);
+      if (data.status === "success") {
+        setServices(data.services);
+        setError(null);
+      } else {
+        setError(data.message);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleAction = async (containerName, action) => {
-    // Update loading state for the targeted container
-    setContainers((prev) =>
-      prev.map((c) => (c.name === containerName ? { ...c, loading: true } : c))
+  const fetchContainerStatus = async () => {
+    try {
+      setStatusLoading(true);
+      const response = await fetch("/api/containers/status");
+      const data = await response.json();
+
+      if (data.status === "success") {
+        // Create a map of service name to container data
+        const statusMap = {};
+        data.containers.forEach((container) => {
+          statusMap[container.Service] = container;
+        });
+        setContainerStatus(statusMap);
+      }
+    } catch (err) {
+      console.error("Error fetching container status:", err);
+    } finally {
+      setStatusLoading(false);
+    }
+  };
+
+  const handleContainerAction = async (service, action) => {
+    try {
+      const response = await fetch(`/api/containers/${action}/${service}`, {
+        method: "POST",
+      });
+      const data = await response.json();
+
+      if (data.status === "success") {
+        // Refresh status after action
+        setTimeout(() => {
+          fetchContainerStatus();
+        }, 1000);
+      } else {
+        console.error(`Failed to ${action} ${service}:`, data.message);
+        alert(`Failed to ${action} ${service}: ${data.message}`);
+      }
+    } catch (err) {
+      console.error(`Error performing ${action} on ${service}:`, err);
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="App">
+        <div className="loading">Loading services...</div>
+      </div>
     );
+  }
 
-    try {
-      const endpoint =
-        action === "restart"
-          ? `/api/docker/restart/${containerName}?compose_key=immich`
-          : `/api/docker/${action}/${containerName}`;
-
-      const response = await fetch(endpoint);
-      const data = await response.json();
-
-      // Wait a bit for Docker to update and then refresh statuses
-      setTimeout(() => {
-        syncServicesFromStatus();
-      }, 2000);
-
-      return data;
-    } catch (error) {
-      console.error(`Error performing ${action} on ${containerName}:`, error);
-      // Restore loading=false on error
-      setContainers((prev) =>
-        prev.map((c) => (c.name === containerName ? { ...c, loading: false } : c))
-      );
-    }
-  };
+  if (error) {
+    return (
+      <div className="App">
+        <div className="error">Error: {error}</div>
+      </div>
+    );
+  }
 
   return (
     <div className="App">
@@ -102,50 +102,30 @@ function App() {
         <p>Manage your Docker containers</p>
       </header>
 
-      <div className="global-controls">
+      <div className="status-control">
         <button
-          className="btn btn-global btn-restart-all"
-          onClick={() => handleGlobalAction("restart-all")}
+          className="btn btn-refresh-status"
+          onClick={fetchContainerStatus}
+          disabled={statusLoading}
         >
-          🔄 Restart All
-        </button>
-        <button
-          className="btn btn-global btn-down-all"
-          onClick={() => handleGlobalAction("down-all")}
-        >
-          ⏹️ Stop All
+          {statusLoading ? "Refreshing..." : "🔄 Refresh Status"}
         </button>
       </div>
 
       <main className="container-grid">
-        {containers.map((container) => (
-          <ContainerCard
-            key={container.name}
-            container={container}
-            onAction={handleAction}
-            onRefresh={updateContainerStatuses}
-          />
-        ))}
+        {services.length === 0 ? (
+          <p>No services found</p>
+        ) : (
+          services.map((service) => (
+            <ContainerCard
+              key={service}
+              service={service}
+              status={containerStatus[service]}
+              onAction={handleContainerAction}
+            />
+          ))
+        )}
       </main>
-
-      <section className="metrics-placeholder">
-        <h2>📊 Host Metrics</h2>
-        <p>Node Exporter metrics will be displayed here</p>
-        <div className="metrics-grid">
-          <div className="metric-card">
-            <h3>CPU Usage</h3>
-            <p>Coming soon...</p>
-          </div>
-          <div className="metric-card">
-            <h3>Memory Usage</h3>
-            <p>Coming soon...</p>
-          </div>
-          <div className="metric-card">
-            <h3>Disk Usage</h3>
-            <p>Coming soon...</p>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }
