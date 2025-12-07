@@ -8,8 +8,9 @@
     "react-scripts": "5.0.1"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
+    "generate-sw": "node scripts/generateServiceWorker.js",
+    "start": "npm run generate-sw && react-scripts start",
+    "build": "npm run generate-sw && react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },

@@ -1,48 +1,75 @@
 .container-card {
-  background: white;
-  border-radius: 15px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-  padding: 25px;
-  transition: transform 0.2s, box-shadow 0.2s, opacity 0.3s;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  padding: 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  position: relative;
+}
+
+.container-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+}
+
+.container-card:hover::before {
+  transform: scaleX(1);
 }
 
 .container-card.container-down {
-  opacity: 0.6;
-  background: linear-gradient(135deg, #f5f5f5 0%, #e0e0e0 100%);
+  opacity: 0.65;
+  background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
 }
 
 .container-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
 }
 
 .container-card.container-down:hover {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 15px;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
   border-bottom: 2px solid #f0f0f0;
 }
 
 .card-header h2 {
   color: #667eea;
-  font-size: 1.5rem;
+  font-size: clamp(1.1rem, 3vw, 1.3rem);
   margin: 0;
   text-transform: capitalize;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-badge {
   padding: 6px 12px;
   border-radius: 20px;
-  font-size: 0.85rem;
-  font-weight: bold;
+  font-size: 0.75rem;
+  font-weight: 700;
   color: white;
   text-transform: uppercase;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
 .spinner {
@@ -60,13 +87,14 @@
 }
 
 .card-content {
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .status-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid #f0f0f0;
 }
@@ -78,11 +106,18 @@
 .label {
   font-weight: 600;
   color: #666;
+  font-size: 0.9rem;
+  flex-shrink: 0;
 }
 
 .value {
   color: #333;
   font-weight: 500;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
 }
 
 .state-badge {
@@ -112,33 +147,45 @@
 }
 
 .down-message {
-  padding: 15px;
+  padding: 12px;
   text-align: center;
-  color: #666;
+  color: #888;
   font-style: italic;
   margin: 0;
+  font-size: 0.9rem;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 8px;
 }
 
 .card-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
-  gap: 10px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
 }
 
 .btn {
-  padding: 12px 16px;
+  padding: 10px 12px;
   border: none;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-size: clamp(0.75rem, 2vw, 0.85rem);
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.4;
   cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .btn-start {
@@ -148,6 +195,7 @@
 .btn-start:hover:not(:disabled) {
   background: linear-gradient(135deg, #45a049, #3d8b40);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
 }
 
 .btn-restart {
@@ -157,6 +205,7 @@
 .btn-restart:hover:not(:disabled) {
   background: linear-gradient(135deg, #5568d3, #6a3f8f);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .btn-stop {
@@ -166,6 +215,7 @@
 .btn-stop:hover:not(:disabled) {
   background: linear-gradient(135deg, #d32f2f, #c62828);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(244, 67, 54, 0.4);
 }
 
 .btn-refresh {
@@ -175,16 +225,30 @@
 .btn-refresh:hover:not(:disabled) {
   background: linear-gradient(135deg, #f57c00, #e65100);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
 }
 
 .btn-up {
   background: linear-gradient(135deg, #2196f3, #1976d2);
-  grid-column: span 4;
+  grid-column: span 3;
+  font-size: clamp(0.85rem, 2vw, 0.95rem);
 }
 
 .btn-up:hover:not(:disabled) {
   background: linear-gradient(135deg, #1976d2, #1565c0);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+}
+
+.btn-pull {
+  background: linear-gradient(135deg, #00bcd4, #0097a7);
+  grid-column: span 2;
+}
+
+.btn-pull:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0097a7, #00838f);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 188, 212, 0.4);
 }
 
 .btn-down {
@@ -194,10 +258,76 @@
 .btn-down:hover:not(:disabled) {
   background: linear-gradient(135deg, #757575, #616161);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(158, 158, 158, 0.4);
 }
 
-@media (max-width: 480px) {
+/* Responsive breakpoints */
+@media (max-width: 640px) {
+  .container-card {
+    padding: 16px;
+  }
+
+  .card-header {
+    flex-wrap: wrap;
+  }
+
+  .card-header h2 {
+    flex: 1 1 100%;
+    margin-bottom: 8px;
+  }
+
+  .status-badge {
+    font-size: 0.7rem;
+    padding: 5px 10px;
+  }
+
   .card-actions {
     grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  /* When container is down: 2 buttons full width each */
+  .container-down .btn-up {
+    grid-column: span 2;
+  }
+
+  .container-down .btn-pull {
+    grid-column: span 2;
+  }
+
+  /* When container is up: 5 buttons in 2x3 grid */
+  .btn-start,
+  .btn-restart,
+  .btn-stop,
+  .btn-down {
+    grid-column: span 1;
+  }
+
+  .btn-pull {
+    grid-column: span 2;
+  }
+
+  .btn {
+    padding: 10px 8px;
+  }
+}
+
+@media (max-width: 400px) {
+  .container-card {
+    padding: 14px;
+  }
+
+  .btn {
+    padding: 9px 6px;
+    font-size: 0.7rem;
+  }
+
+  .status-row {
+    padding: 8px 0;
+  }
+
+  .label,
+  .value {
+    font-size: 0.85rem;
   }
 }

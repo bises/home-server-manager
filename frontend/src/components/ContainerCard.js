@@ -60,17 +60,30 @@ function ContainerCard({ service, status, onAction }) {
 
       <div className="card-actions">
         {isDown ? (
-          <button
-            className="btn btn-up"
-            onClick={async () => {
-              setActionLoading(true);
-              await onAction(service, "up");
-              setActionLoading(false);
-            }}
-            disabled={actionLoading}
-          >
-            🚀 Bring Up
-          </button>
+          <>
+            <button
+              className="btn btn-up"
+              onClick={async () => {
+                setActionLoading(true);
+                await onAction(service, "up");
+                setActionLoading(false);
+              }}
+              disabled={actionLoading}
+            >
+              🚀 Bring Up
+            </button>
+            <button
+              className="btn btn-pull"
+              onClick={async () => {
+                setActionLoading(true);
+                await onAction(service, "pull");
+                setActionLoading(false);
+              }}
+              disabled={actionLoading}
+            >
+              ⬇️ Pull
+            </button>
+          </>
         ) : (
           <>
             <button
@@ -116,6 +129,17 @@ function ContainerCard({ service, status, onAction }) {
               disabled={actionLoading}
             >
               🗑️ Remove
+            </button>
+            <button
+              className="btn btn-pull"
+              onClick={async () => {
+                setActionLoading(true);
+                await onAction(service, "pull");
+                setActionLoading(false);
+              }}
+              disabled={actionLoading}
+            >
+              ⬇️ Pull
             </button>
           </>
         )}
