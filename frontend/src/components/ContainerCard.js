@@ -1,8 +1,14 @@
 import { useState } from "react";
 import "./ContainerCard.css";
 
-function ContainerCard({ service, status, onAction }) {
+function ContainerCard({ service, status, onAction, composeFile }) {
   const [actionLoading, setActionLoading] = useState(false);
+
+  const handleAction = async (action) => {
+    setActionLoading(true);
+    await onAction(service, action, composeFile);
+    setActionLoading(false);
+  };
 
   const getStateColor = (state) => {
     if (!state) return "#999";
@@ -63,22 +69,14 @@ function ContainerCard({ service, status, onAction }) {
           <>
             <button
               className="btn btn-up"
-              onClick={async () => {
-                setActionLoading(true);
-                await onAction(service, "up");
-                setActionLoading(false);
-              }}
+              onClick={() => handleAction("up")}
               disabled={actionLoading}
             >
               🚀 Bring Up
             </button>
             <button
               className="btn btn-pull"
-              onClick={async () => {
-                setActionLoading(true);
-                await onAction(service, "pull");
-                setActionLoading(false);
-              }}
+              onClick={() => handleAction("pull")}
               disabled={actionLoading}
             >
               ⬇️ Pull
@@ -88,55 +86,35 @@ function ContainerCard({ service, status, onAction }) {
           <>
             <button
               className="btn btn-start"
-              onClick={async () => {
-                setActionLoading(true);
-                await onAction(service, "start");
-                setActionLoading(false);
-              }}
+              onClick={() => handleAction("start")}
               disabled={actionLoading || isRunning}
             >
               ▶️ Start
             </button>
             <button
               className="btn btn-restart"
-              onClick={async () => {
-                setActionLoading(true);
-                await onAction(service, "restart");
-                setActionLoading(false);
-              }}
+              onClick={() => handleAction("restart")}
               disabled={actionLoading || !isRunning}
             >
               🔄 Restart
             </button>
             <button
               className="btn btn-stop"
-              onClick={async () => {
-                setActionLoading(true);
-                await onAction(service, "stop");
-                setActionLoading(false);
-              }}
+              onClick={() => handleAction("stop")}
               disabled={actionLoading || !isRunning}
             >
               ⏹️ Stop
             </button>
             <button
               className="btn btn-down"
-              onClick={async () => {
-                setActionLoading(true);
-                await onAction(service, "down");
-                setActionLoading(false);
-              }}
+              onClick={() => handleAction("down")}
               disabled={actionLoading}
             >
               🗑️ Remove
             </button>
             <button
               className="btn btn-pull"
-              onClick={async () => {
-                setActionLoading(true);
-                await onAction(service, "pull");
-                setActionLoading(false);
-              }}
+              onClick={() => handleAction("pull")}
               disabled={actionLoading}
             >
               ⬇️ Pull
