@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 from flask_cors import CORS
 from dotenv import load_dotenv
 import os
@@ -32,38 +32,86 @@ def hello():
         'status': 'success'
     })
 
-@app.route('/api/services', methods=['GET'])
-def get_services():
-    """Get all services from the docker-compose file"""
+@app.route('/api/compose-files', methods=['GET'])
+def get_compose_files():
+    """Get all configured compose files"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
-        
-        if not compose_path:
+        compose_paths = os.getenv('DOCKER_COMPOSE_PATHS', os.getenv('DOCKER_COMPOSE_PATH', ''))
+        if not compose_paths:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'DOCKER_COMPOSE_PATHS environment variable not found'
             }), 404
         
-        # Check if docker-compose file exists
-        if not os.path.exists(compose_path):
-            return jsonify({
-                'status': 'error',
-                'message': f'Docker compose file not found at: {compose_path}'
-            }), 404
+        # Support comma-separated paths
+        path_list = [p.strip() for p in compose_paths.split(',') if p.strip()]
         
-        # Read and parse the docker-compose file
-        with open(compose_path, 'r') as file:
-            compose_data = yaml.safe_load(file)
-        
-        # Extract service names
-        services = list(compose_data.get('services', {}).keys())
+        files = []
+        for path in path_list:
+            if os.path.exists(path):
+                # Extract name from path or compose file
+                name = os.path.splitext(os.path.basename(path))[0]
+                try:
+                    with open(path, 'r') as f:
+                        compose_data = yaml.safe_load(f)
+                    project_name = compose_data.get('name', name) if compose_data else name
+                    files.append({
+                        'path': path,
+                        'name': project_name,
+                        'displayName': name.replace('-compose', '').replace('-', ' ').title()
+                    })
+                except:
+                    files.append({'path': path, 'name': name, 'displayName': name})
         
         return jsonify({
             'status': 'success',
-            'services': services,
-            'total': len(services),
-            'compose_file': compose_path
+            'compose_files': files,
+            'total': len(files)
+        })
+        
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/services', methods=['GET'])
+def get_services():
+    """Get all services from all docker-compose files, grouped by compose file"""
+    try:
+        compose_paths = os.getenv('DOCKER_COMPOSE_PATHS', os.getenv('DOCKER_COMPOSE_PATH', ''))
+        if not compose_paths:
+            return jsonify({
+                'status': 'error',
+                'message': 'DOCKER_COMPOSE_PATHS environment variable not found'
+            }), 404
+        
+        path_list = [p.strip() for p in compose_paths.split(',') if p.strip()]
+        all_services = []
+        
+        for path in path_list:
+            if not os.path.exists(path):
+                continue
+            
+            # Get project name from compose file
+            with open(path, 'r') as f:
+                compose_data = yaml.safe_load(f)
+            
+            project_name = compose_data.get('name', os.path.splitext(os.path.basename(path))[0]) if compose_data else 'unknown'
+            display_name = os.path.splitext(os.path.basename(path))[0].replace('-compose', '').replace('-', ' ').title()
+            
+            services = list(compose_data.get('services', {}).keys()) if compose_data else []
+            
+            for svc in services:
+                all_services.append({
+                    'service': svc,
+                    'compose_file': path,
+                    'project_name': project_name,
+                    'display_name': display_name
+                })
+        
+        return jsonify({
+            'status': 'success',
+            'services': all_services,
+            'total': len(all_services)
         })
         
     except yaml.YAMLError as e:
@@ -79,69 +127,64 @@ def get_services():
 
 @app.route('/api/containers/status', methods=['GET'])
 def get_containers():
-    """Get all running containers from docker-compose ps"""
+    """Get all running containers from all docker-compose files"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
-        
-        if not compose_path:
+        compose_paths = os.getenv('DOCKER_COMPOSE_PATHS', os.getenv('DOCKER_COMPOSE_PATH', ''))
+        if not compose_paths:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'DOCKER_COMPOSE_PATHS environment variable not found'
             }), 404
         
-        # Check if docker-compose file exists
-        if not os.path.exists(compose_path):
-            return jsonify({
-                'status': 'error',
-                'message': f'Docker compose file not found at: {compose_path}'
-            }), 404
+        path_list = [p.strip() for p in compose_paths.split(',') if p.strip()]
+        all_containers = []
         
-        # Run docker-compose ps -a --format json with explicit project name
-        result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'ps', '-a', '--format', 'json'],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        if result.returncode == 0:
-            containers = []
-            if result.stdout.strip():
-                # Parse JSON output (one JSON object per line)
+        for path in path_list:
+            if not os.path.exists(path):
+                continue
+            
+            # Get project name from compose file
+            with open(path, 'r') as f:
+                compose_data = yaml.safe_load(f)
+            project_name = compose_data.get('name', os.path.splitext(os.path.basename(path))[0]) if compose_data else 'unknown'
+            display_name = os.path.splitext(os.path.basename(path))[0].replace('-compose', '').replace('-', ' ').title()
+            
+            # Run docker-compose ps -a --format json with explicit project name
+            result = subprocess.run(
+                ['docker-compose', '-p', project_name, '-f', path, 'ps', '-a', '--format', 'json'],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
                 for line in result.stdout.strip().split('\n'):
                     if line:
-                        container_data = json.loads(line)
-                        containers.append({
-                            'Name': container_data.get('Name', ''),
-                            'Service': container_data.get('Service', ''),
-                            'State': container_data.get('State', ''),
-                            'Status': container_data.get('Status', ''),
-                            'Ports': container_data.get('Publishers', [])
-                        })
-            
-            return jsonify({
-                'status': 'success',
-                'containers': containers,
-                'total': len(containers),
-                'compose_file': compose_path
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to get container status',
-                'error': result.stderr
-            }), 500
+                        try:
+                            container_data = json.loads(line)
+                            all_containers.append({
+                                'Name': container_data.get('Name', ''),
+                                'Service': container_data.get('Service', ''),
+                                'State': container_data.get('State', ''),
+                                'Status': container_data.get('Status', ''),
+                                'Ports': container_data.get('Publishers', []),
+                                'compose_file': path,
+                                'project_name': project_name,
+                                'display_name': display_name
+                            })
+                        except json.JSONDecodeError:
+                            continue
+        
+        return jsonify({
+            'status': 'success',
+            'containers': all_containers,
+            'total': len(all_containers)
+        })
             
     except subprocess.TimeoutExpired:
         return jsonify({
             'status': 'error',
             'message': 'Docker command timed out'
-        }), 500
-    except json.JSONDecodeError as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Error parsing docker output: {str(e)}'
         }), 500
     except Exception as e:
         return jsonify({
@@ -153,25 +196,27 @@ def get_containers():
 def start_container(service_name):
     """Start a specific service using docker-compose"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
+        compose_path = request.args.get('compose_file') or os.getenv('DOCKER_COMPOSE_PATH')
         
         if not compose_path:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'compose_file parameter or DOCKER_COMPOSE_PATH not found'
             }), 404
         
-        # Check if docker-compose file exists
         if not os.path.exists(compose_path):
             return jsonify({
                 'status': 'error',
                 'message': f'Docker compose file not found at: {compose_path}'
             }), 404
         
-        # Run docker-compose start for specific service (only works on stopped containers)
+        # Get project name from compose file
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        project_name = compose_data.get('name', 'default') if compose_data else 'default'
+        
         result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'start', service_name],
+            ['docker-compose', '-p', project_name, '-f', compose_path, 'start', service_name],
             capture_output=True,
             text=True,
             timeout=60
@@ -208,25 +253,27 @@ def start_container(service_name):
 def stop_container(service_name):
     """Stop a specific service using docker-compose"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
+        compose_path = request.args.get('compose_file') or os.getenv('DOCKER_COMPOSE_PATH')
         
         if not compose_path:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'compose_file parameter or DOCKER_COMPOSE_PATH not found'
             }), 404
         
-        # Check if docker-compose file exists
         if not os.path.exists(compose_path):
             return jsonify({
                 'status': 'error',
                 'message': f'Docker compose file not found at: {compose_path}'
             }), 404
         
-        # Run docker-compose stop for specific service
+        # Get project name from compose file
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        project_name = compose_data.get('name', 'default') if compose_data else 'default'
+        
         result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'stop', service_name],
+            ['docker-compose', '-p', project_name, '-f', compose_path, 'stop', service_name],
             capture_output=True,
             text=True,
             timeout=60
@@ -263,25 +310,27 @@ def stop_container(service_name):
 def restart_container(service_name):
     """Restart a specific service using docker-compose"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
+        compose_path = request.args.get('compose_file') or os.getenv('DOCKER_COMPOSE_PATH')
         
         if not compose_path:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'compose_file parameter or DOCKER_COMPOSE_PATH not found'
             }), 404
         
-        # Check if docker-compose file exists
         if not os.path.exists(compose_path):
             return jsonify({
                 'status': 'error',
                 'message': f'Docker compose file not found at: {compose_path}'
             }), 404
         
-        # Run docker-compose restart for specific service
+        # Get project name from compose file
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        project_name = compose_data.get('name', 'default') if compose_data else 'default'
+        
         result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'restart', service_name],
+            ['docker-compose', '-p', project_name, '-f', compose_path, 'restart', service_name],
             capture_output=True,
             text=True,
             timeout=60
@@ -318,25 +367,27 @@ def restart_container(service_name):
 def up_container(service_name):
     """Create and start a specific service using docker-compose up -d"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
+        compose_path = request.args.get('compose_file') or os.getenv('DOCKER_COMPOSE_PATH')
         
         if not compose_path:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'compose_file parameter or DOCKER_COMPOSE_PATH not found'
             }), 404
         
-        # Check if docker-compose file exists
         if not os.path.exists(compose_path):
             return jsonify({
                 'status': 'error',
                 'message': f'Docker compose file not found at: {compose_path}'
             }), 404
         
-        # Run docker-compose up -d for specific service
+        # Get project name from compose file
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        project_name = compose_data.get('name', 'default') if compose_data else 'default'
+        
         result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'up', '-d', service_name],
+            ['docker-compose', '-p', project_name, '-f', compose_path, 'up', '-d', service_name],
             capture_output=True,
             text=True,
             timeout=60
@@ -373,25 +424,27 @@ def up_container(service_name):
 def down_container(service_name):
     """Stop and remove a specific service using docker-compose down"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
+        compose_path = request.args.get('compose_file') or os.getenv('DOCKER_COMPOSE_PATH')
         
         if not compose_path:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'compose_file parameter or DOCKER_COMPOSE_PATH not found'
             }), 404
         
-        # Check if docker-compose file exists
         if not os.path.exists(compose_path):
             return jsonify({
                 'status': 'error',
                 'message': f'Docker compose file not found at: {compose_path}'
             }), 404
         
-        # Run docker-compose rm -s -f for specific service (stop and remove)
+        # Get project name from compose file
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        project_name = compose_data.get('name', 'default') if compose_data else 'default'
+        
         result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'rm', '-s', '-f', service_name],
+            ['docker-compose', '-p', project_name, '-f', compose_path, 'rm', '-s', '-f', service_name],
             capture_output=True,
             text=True,
             timeout=60
@@ -428,25 +481,28 @@ def down_container(service_name):
 def pull_container(service_name):
     """Pull the latest image for a service and restart it if it was running"""
     try:
-        # Get docker-compose file path from environment variable
-        compose_path = os.getenv('DOCKER_COMPOSE_PATH')
+        compose_path = request.args.get('compose_file') or os.getenv('DOCKER_COMPOSE_PATH')
         
         if not compose_path:
             return jsonify({
                 'status': 'error',
-                'message': 'DOCKER_COMPOSE_PATH environment variable not found'
+                'message': 'compose_file parameter or DOCKER_COMPOSE_PATH not found'
             }), 404
         
-        # Check if docker-compose file exists
         if not os.path.exists(compose_path):
             return jsonify({
                 'status': 'error',
                 'message': f'Docker compose file not found at: {compose_path}'
             }), 404
         
+        # Get project name from compose file
+        with open(compose_path, 'r') as f:
+            compose_data = yaml.safe_load(f)
+        project_name = compose_data.get('name', 'default') if compose_data else 'default'
+        
         # Step 1: Check the current state of the container
         status_result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'ps', '-a', '--format', 'json', service_name],
+            ['docker-compose', '-p', project_name, '-f', compose_path, 'ps', '-a', '--format', 'json', service_name],
             capture_output=True,
             text=True,
             timeout=30
@@ -466,7 +522,7 @@ def pull_container(service_name):
         
         # Step 2: Pull the latest image
         pull_result = subprocess.run(
-            ['docker-compose', '-p', 'home-server', '-f', compose_path, 'pull', service_name],
+            ['-p', project_name, '-f', compose_path, 'pull', service_name],
             capture_output=True,
             text=True,
             timeout=300  # 5 minutes for pulling images
@@ -489,7 +545,7 @@ def pull_container(service_name):
             # Container was running, so stop it, remove it, and bring it up with new image
             # Stop and remove the container
             down_result = subprocess.run(
-                ['docker-compose', '-p', 'home-server', '-f', compose_path, 'rm', '-s', '-f', service_name],
+                ['-p', project_name, '-f', compose_path, 'rm', '-s', '-f', service_name],
                 capture_output=True,
                 text=True,
                 timeout=60
@@ -505,7 +561,7 @@ def pull_container(service_name):
             
             # Bring up the service with new image
             up_result = subprocess.run(
-                ['docker-compose', '-p', 'home-server', '-f', compose_path, 'up', '-d', service_name],
+                ['-p', project_name, '-f', compose_path, 'up', '-d', service_name],
                 capture_output=True,
                 text=True,
                 timeout=60
@@ -531,7 +587,7 @@ def pull_container(service_name):
         elif container_exists:
             # Container exists but was stopped, just remove it
             down_result = subprocess.run(
-                ['docker-compose', '-p', 'home-server', '-f', compose_path, 'rm', '-f', service_name],
+                ['-p', project_name, '-f', compose_path, 'rm', '-f', service_name],
                 capture_output=True,
                 text=True,
                 timeout=60
@@ -583,6 +639,94 @@ def pull_container(service_name):
             'service': service_name,
             'message': str(e)
         }), 500
+
+
+@app.route('/api/openclaw/status', methods=['GET'])
+def get_openclaw_status():
+    """Get OpenClaw status and info"""
+    try:
+        # Try to get OpenClaw info from CLI
+        result = subprocess.run(
+            ['openclaw', 'status', '--json'],
+            capture_output=True,
+            text=True,
+            timeout=15
+        )
+        
+        if result.returncode == 0:
+            try:
+                status_data = json.loads(result.stdout)
+                return jsonify({
+                    'status': 'success',
+                    'openclaw': status_data
+                })
+            except json.JSONDecodeError:
+                return jsonify({
+                    'status': 'success',
+                    'openclaw': {
+                        'raw_output': result.stdout,
+                        'message': 'Status available but not parseable'
+                    }
+                })
+        else:
+            # OpenClaw not running or not available
+            return jsonify({
+                'status': 'error',
+                'message': 'OpenClaw not available',
+                'error': result.stderr
+            }), 500
+            
+    except FileNotFoundError:
+        return jsonify({
+            'status': 'error',
+            'message': 'OpenClaw CLI not found on this system'
+        }), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'status': 'error',
+            'message': 'OpenClaw status command timed out'
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/openclaw/restart', methods=['POST'])
+def restart_openclaw():
+    """Restart OpenClaw service"""
+    try:
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', 'openclaw'],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            return jsonify({
+                'status': 'success',
+                'message': 'OpenClaw restarted successfully'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to restart OpenClaw',
+                'error': result.stderr
+            }), 500
+            
+    except FileNotFoundError:
+        return jsonify({
+            'status': 'error',
+            'message': 'systemctl not found'
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
