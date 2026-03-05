@@ -55,6 +55,18 @@ function ContainerCard({ service, status, onAction, composeFile }) {
             <span className="label">Name:</span>
             <span className="value">{status.Name || "N/A"}</span>
           </div>
+          {status.Ports && status.Ports.length > 0 && (
+            <div className="status-row">
+              <span className="label">Ports:</span>
+              <span className="value">
+                {status.Ports.map((p, i) => (
+                  <span key={i} className="port-badge">
+                    {p.HostPort}:{p.ContainerPort}/{p.Protocol || 'tcp'}
+                  </span>
+                ))}
+              </span>
+            </div>
+          )}
         </div>
       )}
 
