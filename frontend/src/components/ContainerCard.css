@@ -261,7 +261,21 @@
   box-shadow: 0 4px 12px rgba(158, 158, 158, 0.4);
 }
 
-/* Responsive breakpoints */
+.port-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+  color: #2e7d32;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  margin-left: 4px;
+  font-family: 'Monaco', 'Menlo', monospace;
+}
+
+.port-badge:first-child {
+  margin-left: 0;
+}
 @media (max-width: 640px) {
   .container-card {
     padding: 16px;
