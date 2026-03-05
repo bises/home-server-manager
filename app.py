@@ -645,51 +645,61 @@ def pull_container(service_name):
 def get_openclaw_status():
     """Get OpenClaw status and info"""
     try:
-        # Try to get OpenClaw info from CLI
+        # Try running openclaw from host via docker with host network
+        # This requires openclaw to be accessible in the container or on host
         result = subprocess.run(
-            ['openclaw', 'status', '--json'],
+            ['docker', 'run', '--rm', '-i', '--network=host', 'python:3.11-slim', 'sh', '-c', 
+             'pip install -q openclaw && openclaw status --json'],
             capture_output=True,
             text=True,
-            timeout=15
+            timeout=60
         )
         
-        if result.returncode == 0:
+        if result.returncode == 0 and result.stdout.strip():
             try:
-                status_data = json.loads(result.stdout)
-                return jsonify({
-                    'status': 'success',
-                    'openclaw': status_data
-                })
-            except json.JSONDecodeError:
+                # Find JSON in output
+                import re
+                json_match = re.search(r'\{.*\}', result.stdout, re.DOTALL)
+                if json_match:
+                    status_data = json.loads(json_match.group())
+                    return jsonify({
+                        'status': 'success',
+                        'openclaw': status_data
+                    })
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        
+        # If above fails, try direct host access via curl to dashboard
+        try:
+            import requests
+            resp = requests.get('http://host.docker.internal:18789/', timeout=5)
+            if resp.status_code == 200:
                 return jsonify({
                     'status': 'success',
                     'openclaw': {
-                        'raw_output': result.stdout,
-                        'message': 'Status available but not parseable'
+                        'message': 'OpenClaw is running (web UI available)',
+                        'url': 'http://host.docker.internal:18789/'
                     }
                 })
-        else:
-            # OpenClaw not running or not available
-            return jsonify({
-                'status': 'error',
-                'message': 'OpenClaw not available',
-                'error': result.stderr
-            }), 500
+        except:
+            pass
             
-    except FileNotFoundError:
+        # OpenClaw not available
         return jsonify({
-            'status': 'error',
-            'message': 'OpenClaw CLI not found on this system'
-        }), 500
+            'status': 'unavailable',
+            'message': 'OpenClaw is not running or not accessible from container'
+        })
+            
     except subprocess.TimeoutExpired:
         return jsonify({
-            'status': 'error',
-            'message': 'OpenClaw status command timed out'
-        }), 500
+            'status': 'unavailable',
+            'message': 'OpenClaw status check timed out'
+        })
     except Exception as e:
         return jsonify({
-            'status': 'error',
+            'status': 'unavailable',
             'message': str(e)
+        })
         }), 500
 
 

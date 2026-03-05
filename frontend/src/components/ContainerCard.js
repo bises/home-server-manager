@@ -61,7 +61,7 @@ function ContainerCard({ service, status, onAction, composeFile }) {
               <span className="value">
                 {status.Ports.map((p, i) => (
                   <span key={i} className="port-badge">
-                    {p.HostPort}:{p.ContainerPort}/{p.Protocol || 'tcp'}
+                    {p.PublishedPort || '?'}:{p.TargetPort}/{p.Protocol || 'tcp'}
                   </span>
                 ))}
               </span>
