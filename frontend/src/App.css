@@ -155,51 +155,6 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* OpenClaw button */
-.btn-openclaw {
-  margin-top: 12px;
-  padding: 10px 20px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: var(--text-light);
-  transition: var(--transition);
-  box-shadow: var(--shadow-md);
-}
-
-.btn-openclaw:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
-}
-
-/* OpenClaw panel */
-.openclaw-panel {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 24px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: var(--radius-lg);
-  animation: fadeIn 0.4s ease-out;
-}
-
-.openclaw-panel h2 {
-  color: #10b981;
-  margin-bottom: 16px;
-}
-
-.openclaw-info {
-  background: #1a1d24;
-  color: #10b981;
-  padding: 16px;
-  border-radius: var(--radius-md);
-  overflow-x: auto;
-  font-size: 0.85rem;
-  line-height: 1.5;
-}
-
 .container-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));

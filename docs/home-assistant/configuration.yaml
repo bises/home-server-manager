@@ -1,0 +1,60 @@
+# Example Home Assistant configuration for Home Server Manager (Phase 1 read-only)
+# Place in configuration.yaml (or a package) and set `hsm_snapshot_url` in secrets.yaml:
+#   hsm_snapshot_url: "http://127.0.0.1:8090/api/v1/snapshot"
+
+rest:
+  - resource: !secret hsm_snapshot_url
+    scan_interval: 30
+    timeout: 10
+    sensor:
+      - name: "Home Server Freshness"
+        unique_id: hsm_snapshot_freshness
+        value_template: "{{ value_json.freshness }}"
+        json_attributes:
+          - sampled_at
+          - last_success_at
+          - stale_age_seconds
+          - docker_available
+          - docker_error
+
+      - name: "Home Server Running Services"
+        unique_id: hsm_running_services
+        value_template: "{{ value_json.summary.running }}"
+        unit_of_measurement: "services"
+        json_attributes_path: "$.summary"
+        json_attributes:
+          - total
+          - stopped
+          - unhealthy
+          - starting
+          - unknown
+
+      - name: "Home Server Memory Used"
+        unique_id: hsm_memory_used_percent
+        value_template: "{{ value_json.host.memory.used_percent | round(1) }}"
+        unit_of_measurement: "%"
+
+      - name: "Home Server Root Disk Used"
+        unique_id: hsm_root_disk_used_percent
+        value_template: >-
+          {% set disks = value_json.host.disks | selectattr('id', 'equalto', 'root') | list %}
+          {{ (disks[0].used_percent | round(1)) if disks and disks[0].available else 'unavailable' }}
+        unit_of_measurement: "%"
+
+      - name: "Home Server Fixture Web"
+        unique_id: hsm_svc_fixture_web
+        value_template: >-
+          {% set svcs = value_json.services | selectattr('id', 'equalto', 'fixture-web') | list %}
+          {{ svcs[0].state if svcs else 'unknown' }}
+
+      - name: "Home Server Fixture Unhealthy"
+        unique_id: hsm_svc_fixture_unhealthy
+        value_template: >-
+          {% set svcs = value_json.services | selectattr('id', 'equalto', 'fixture-unhealthy') | list %}
+          {{ svcs[0].state if svcs else 'unknown' }}
+
+      - name: "Home Server Fixture Stopped"
+        unique_id: hsm_svc_fixture_stopped
+        value_template: >-
+          {% set svcs = value_json.services | selectattr('id', 'equalto', 'fixture-stopped') | list %}
+          {{ svcs[0].state if svcs else 'unknown' }}

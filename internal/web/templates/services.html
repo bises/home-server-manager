@@ -1,0 +1,91 @@
+{{define "content"}}
+<section class="page-head">
+  <div>
+    <h1>Services</h1>
+    <p class="meta-line">
+      <span>{{.MatchCount}} shown</span>
+      <span class="freshness freshness-{{.Snap.Freshness}}">
+        {{if eq .Snap.Freshness "fresh"}}Fresh{{else if eq .Snap.Freshness "stale"}}Stale ({{.Snap.StaleAgeSeconds}}s old){{else}}Unavailable{{end}}
+      </span>
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/services?refresh=1&amp;q={{.Query}}&amp;status={{.Status}}">Refresh</a>
+  </div>
+</section>
+
+<form class="filter-bar" method="get" action="/services">
+  <label class="sr-only" for="q">Search services</label>
+  <input id="q" name="q" type="search" value="{{.Query}}" placeholder="Search name, stack, or image">
+  <label class="sr-only" for="status">Filter by status</label>
+  <select id="status" name="status">
+    <option value="all" {{if eq .Status "all"}}selected{{end}}>All statuses</option>
+    <option value="attention" {{if eq .Status "attention"}}selected{{end}}>Needs attention</option>
+    <option value="running" {{if eq .Status "running"}}selected{{end}}>Running</option>
+    <option value="unhealthy" {{if eq .Status "unhealthy"}}selected{{end}}>Unhealthy</option>
+    <option value="stopped" {{if eq .Status "stopped"}}selected{{end}}>Stopped</option>
+    <option value="starting" {{if eq .Status "starting"}}selected{{end}}>Starting</option>
+    <option value="unknown" {{if eq .Status "unknown"}}selected{{end}}>Unknown</option>
+  </select>
+  <button class="btn" type="submit">Apply</button>
+</form>
+
+{{if .StackGroups}}
+  {{range .StackGroups}}
+  <section class="panel">
+    <h2>Stack: {{.Name}}</h2>
+    <div class="table-wrap">
+      <table class="svc-table">
+        <thead>
+          <tr>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Image</th>
+            <th>Ports</th>
+            <th>Links</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Services}}
+          <tr>
+            <td>
+              <a class="svc-link" href="/services/{{.ID}}">{{.DisplayName}}</a>
+              {{if .Protected}}<span class="pill">Protected</span>{{end}}
+            </td>
+            <td><span class="badge badge-{{.State}}">{{stateIcon .State}} {{stateLabel .State}}</span></td>
+            <td class="mono">{{if .Image}}{{.Image}}{{else}}—{{end}}</td>
+            <td class="mono">{{formatPorts .Ports}}</td>
+            <td>
+              <a class="link-quiet" href="/services/{{.ID}}">Details</a>
+              {{if .URL}} · <a class="link-quiet" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{end}}
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div class="card-stack">
+      {{range .Services}}
+      <article class="svc-card">
+        <div class="svc-card-head">
+          <a class="svc-link" href="/services/{{.ID}}">{{.DisplayName}}</a>
+          <span class="badge badge-{{.State}}">{{stateIcon .State}} {{stateLabel .State}}</span>
+        </div>
+        <p class="muted mono">{{if .Image}}{{.Image}}{{else}}No container{{end}}</p>
+        <p class="muted">Ports: <span class="mono">{{formatPorts .Ports}}</span></p>
+        <div class="svc-card-links">
+          {{if .Protected}}<span class="pill">Protected</span>{{end}}
+          <a class="link-quiet" href="/services/{{.ID}}">Details</a>
+          {{if .URL}}<a class="link-quiet" href="{{.URL}}" target="_blank" rel="noopener">Open</a>{{end}}
+        </div>
+      </article>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+{{else}}
+  <section class="panel">
+    <p class="muted">No services match the current filter.</p>
+  </section>
+{{end}}
+{{end}}

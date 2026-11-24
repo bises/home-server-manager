@@ -1,0 +1,13 @@
+{{define "content"}}
+<section class="page-head">
+  <div>
+    <h1>Activity</h1>
+    <p class="meta-line">Host: {{.Snap.Host.Hostname}}</p>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Read-only pilot</h2>
+  <p class="muted">No service mutations are enabled in Phase 1. Authenticated actions and host journal audit records will appear here in Phase 2.</p>
+</section>
+{{end}}

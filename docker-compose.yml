@@ -3,13 +3,11 @@ services:
     build: .
     container_name: home-server-api
     ports:
-      - "8080:5000"
+      - "127.0.0.1:8080:5000"
     environment:
-      # Comma-separated paths to docker-compose files to manage
-      - DOCKER_COMPOSE_PATHS=/app/test-docker-compose.yml,/app/goal-tracker-compose.yml
+      - DOCKER_COMPOSE_PATH=/app/test-docker-compose.yml
     volumes:
-      - .:/app
+      - .:/app:ro
       - /var/run/docker.sock:/var/run/docker.sock # To allow Docker commands from within container
       - ./test-docker-compose.yml:/app/test-docker-compose.yml:ro # Test services (nginx, redis, postgres)
-      - /home/deploy/goal-tracker/docker-compose.yml:/app/goal-tracker-compose.yml:ro # Goal Tracker
     restart: unless-stopped

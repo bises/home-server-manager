@@ -1,0 +1,47 @@
+name: hsm-fixture
+
+services:
+  fixture-web:
+    image: nginx:alpine
+    container_name: hsm-fixture-web
+    ports:
+      - "127.0.0.1:18080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/ >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s
+    restart: unless-stopped
+
+  fixture-unhealthy:
+    image: alpine:3.20
+    container_name: hsm-fixture-unhealthy
+    command: ["sh", "-c", "while true; do sleep 30; done"]
+    healthcheck:
+      test: ["CMD", "false"]
+      interval: 2s
+      timeout: 2s
+      retries: 1
+      start_period: 1s
+    restart: unless-stopped
+
+  fixture-stopped:
+    image: alpine:3.20
+    container_name: hsm-fixture-stopped
+    command: ["sh", "-c", "sleep 300"]
+
+  fixture-db:
+    image: postgres:15-alpine
+    container_name: hsm-fixture-db
+    environment:
+      POSTGRES_USER: fixture
+      POSTGRES_PASSWORD: fixture-password-not-secret
+      POSTGRES_DB: fixture
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fixture -d fixture"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    restart: unless-stopped

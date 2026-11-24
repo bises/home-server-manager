@@ -1,36 +1,21 @@
-FROM node:18-alpine AS frontend-builder
+FROM golang:1.26-alpine AS backend-builder
+WORKDIR /src
+COPY go.mod ./
+COPY cmd ./cmd
+COPY internal ./internal
+COPY fixtures ./fixtures
+RUN go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/home-server-manager ./cmd/home-server-manager
 
-WORKDIR /app/frontend
-
-# Copy frontend package files
-COPY frontend/package*.json ./
-RUN npm install
-
-# Copy frontend source and build
-COPY frontend/ ./
-RUN npm run build
-
-# Python runtime stage
-FROM python:3.11-alpine
-
+FROM alpine:3.23
+RUN adduser -D -H -s /sbin/nologin hsm
 WORKDIR /app
+COPY --from=backend-builder /out/home-server-manager /usr/local/bin/home-server-manager
+COPY fixtures/manager.json /etc/home-server-manager/manager.json
 
-# Install Docker CLI and Docker Compose
-RUN apk add --no-cache curl docker-cli && \
-    curl -L "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && \
-    chmod +x /usr/local/bin/docker-compose && \
-    apk del curl
+USER hsm
+ENV HSM_CONFIG=/etc/home-server-manager/manager.json
+ENV HSM_LISTEN_ADDR=127.0.0.1:8090
 
-# Copy Python requirements and install
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+EXPOSE 8090
 
-# Copy application code
-COPY app.py .
-
-# Copy built React app from frontend-builder stage
-COPY --from=frontend-builder /app/frontend/build ./frontend/build
-
-EXPOSE 5000
-
-CMD ["python", "app.py"]
+CMD ["home-server-manager", "web"]

@@ -4,208 +4,121 @@ import ContainerCard from "./components/ContainerCard";
 
 function App() {
   const [services, setServices] = useState([]);
+  const [composeFiles, setComposeFiles] = useState([]);
+  const [selectedCompose, setSelectedCompose] = useState("all");
   const [containerStatus, setContainerStatus] = useState({});
   const [loading, setLoading] = useState(true);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [statusKnown, setStatusKnown] = useState(false);
   const [error, setError] = useState(null);
-  const [composeFiles, setComposeFiles] = useState([]);
-  const [selectedCompose, setSelectedCompose] = useState("all");
-  const [openclawStatus, setOpenclawStatus] = useState(null);
-  const [showOpenClaw, setShowOpenClaw] = useState(false);
+  const [statusError, setStatusError] = useState(null);
 
-  useEffect(() => {
-    const initializeApp = async () => {
-      await fetchComposeFiles();
-      await fetchServices();
-      await fetchContainerStatus();
-    };
-    initializeApp();
-  }, []);
-
-  const fetchComposeFiles = async () => {
+  async function fetchContainerStatus() {
+    setStatusLoading(true);
     try {
-      const response = await fetch("/api/compose-files");
-      const data = await response.json();
-      if (data.status === "success") {
-        setComposeFiles(data.compose_files || []);
-      }
-    } catch (err) {
-      console.error("Error fetching compose files:", err);
-    }
-  };
-
-  const fetchServices = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch("/api/services");
-      const data = await response.json();
-
-      if (data.status === "success") {
-        setServices(data.services || []);
-        setError(null);
-      } else {
-        setError(data.message);
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchContainerStatus = async () => {
-    try {
-      setStatusLoading(true);
       const response = await fetch("/api/containers/status");
       const data = await response.json();
-
-      if (data.status === "success") {
-        // Create a map of service name to container data
-        const statusMap = {};
-        data.containers.forEach((container) => {
-          const key = `${container.Service}|${container.compose_file}`;
-          statusMap[key] = container;
-        });
-        setContainerStatus(statusMap);
+      if (data.status !== "success") {
+        throw new Error(data.message || "Could not read container status");
       }
+
+      const statusMap = Object.fromEntries(
+        data.containers.map((container) => [
+          `${container.Service}|${container.compose_file}`,
+          container,
+        ])
+      );
+      setContainerStatus(statusMap);
+      setStatusKnown(true);
+      setStatusError(null);
     } catch (err) {
-      console.error("Error fetching container status:", err);
+      setStatusKnown(false);
+      setStatusError(err.message);
     } finally {
       setStatusLoading(false);
     }
-  };
+  }
 
-  const fetchOpenClawStatus = async () => {
-    try {
-      const response = await fetch("/api/openclaw/status");
-      const data = await response.json();
-      if (data.status === "success") {
-        setOpenclawStatus(data.openclaw);
+  useEffect(() => {
+    async function initializeApp() {
+      try {
+        const response = await fetch("/api/services");
+        const data = await response.json();
+        if (data.status !== "success") {
+          throw new Error(data.message || "Could not read Compose services");
+        }
+        setServices(data.services);
+        setComposeFiles(data.compose_files);
+        await fetchContainerStatus();
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      console.error("Error fetching OpenClaw status:", err);
     }
-  };
+    initializeApp();
+  }, []);
 
   const handleContainerAction = async (service, action, composeFile) => {
+    const file = encodeURIComponent(composeFile);
+    const name = encodeURIComponent(service);
     try {
-      const url = `/api/containers/${action}/${service}${composeFile ? `?compose_file=${encodeURIComponent(composeFile)}` : ''}`;
-      const response = await fetch(url, {
+      const response = await fetch(`/api/containers/${action}/${name}?compose_file=${file}`, {
         method: "POST",
       });
       const data = await response.json();
-
-      if (data.status === "success") {
-        // Refresh status after action
-        setTimeout(() => {
-          fetchContainerStatus();
-        }, 1000);
-      } else {
-        console.error(`Failed to ${action} ${service}:`, data.message);
-        alert(`Failed to ${action} ${service}: ${data.message}`);
+      if (data.status !== "success") {
+        throw new Error(data.message || "The action could not be completed");
       }
     } catch (err) {
-      console.error(`Error performing ${action} on ${service}:`, err);
-      alert(`Error: ${err.message}`);
+      alert(err.message);
+    } finally {
+      await fetchContainerStatus();
     }
   };
 
-  if (loading) {
-    return (
-      <div className="App">
-        <header className="App-header">
-          <h1>🐳 Home Server Manager</h1>
-          <p>Manage your Docker containers</p>
-        </header>
-        <div className="skeleton-grid">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="skeleton-card"></div>
-          ))}
-        </div>
-      </div>
-    );
-  }
+  const filteredServices = selectedCompose === "all"
+    ? services
+    : services.filter((service) => service.compose_file === selectedCompose);
 
-  if (error) {
-    return (
-      <div className="App">
-        <header className="App-header">
-          <h1>🐳 Home Server Manager</h1>
-          <p>Manage your Docker containers</p>
-        </header>
-        <div className="error">
-          <p>⚠️ Error: {error}</p>
-          <button
-            className="btn-refresh-status"
-            onClick={() => window.location.reload()}
-            style={{ marginTop: "20px" }}
-          >
-            Reload Page
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Filter services by selected compose file
-  const filteredServices = selectedCompose === "all" 
-    ? services 
-    : services.filter(s => s.compose_file === selectedCompose);
-
-  // Group services by compose file for display
-  const groupedServices = filteredServices.reduce((acc, service) => {
-    const key = service.compose_file || "unknown";
-    if (!acc[key]) {
-      acc[key] = [];
-    }
-    acc[key].push(service);
-    return acc;
-  }, {});
+  const groupedServices = filteredServices.reduce((groups, service) => {
+    const key = service.compose_file;
+    groups[key] = (groups[key] || []).concat(service);
+    return groups;
+  }, Object.create(null));
 
   return (
     <div className="App">
       <header className="App-header">
         <h1>🐳 Home Server Manager</h1>
         <p>Manage your Docker containers</p>
-        <button 
-          className="btn-openclaw"
-          onClick={() => {
-            setShowOpenClaw(!showOpenClaw);
-            if (!showOpenClaw && !openclawStatus) fetchOpenClawStatus();
-          }}
-        >
-          {showOpenClaw ? "🔙 Back" : "🤖 OpenClaw"}
-        </button>
       </header>
-
-      {showOpenClaw ? (
-        <div className="openclaw-panel">
-          <h2>🤖 OpenClaw Status</h2>
-          {openclawStatus ? (
-            <pre className="openclaw-info">
-              {JSON.stringify(openclawStatus, null, 2)}
-            </pre>
-          ) : (
-            <p>Loading...</p>
-          )}
+      {loading ? (
+        <div className="skeleton-grid" aria-label="Loading Compose services">
+          {[1, 2, 3].map((key) => <div className="skeleton-card" key={key} />)}
+        </div>
+      ) : error ? (
+        <div className="error" role="alert">
+          <p>{error}</p>
+          <button className="btn-refresh-status" onClick={() => window.location.reload()}>
+            Reload Page
+          </button>
         </div>
       ) : (
         <>
           <div className="compose-selector">
-            <label>Compose File: </label>
-            <select 
-              value={selectedCompose} 
+            <label htmlFor="compose-file">Compose file</label>
+            <select
+              id="compose-file"
+              value={selectedCompose}
               onChange={(e) => setSelectedCompose(e.target.value)}
             >
               <option value="all">All ({services.length} services)</option>
-              {composeFiles.map((cf) => (
-                <option key={cf.path} value={cf.path}>
-                  {cf.display_name}
-                </option>
+              {composeFiles.map((file) => (
+                <option key={file.path} value={file.path}>{file.display_name}</option>
               ))}
             </select>
           </div>
-
           <div className="status-control">
             <button
               className="btn-refresh-status"
@@ -214,28 +127,25 @@ function App() {
             >
               {statusLoading ? "Refreshing..." : "🔄 Refresh Status"}
             </button>
+            {statusError && <p role="alert">{statusError}</p>}
           </div>
-
           <main className="container-grid">
             {filteredServices.length === 0 ? (
-              <div className="empty-state">
-                <p>📦 No services found</p>
-              </div>
+              <div className="empty-state"><p>No services found</p></div>
             ) : (
-              Object.entries(groupedServices).map(([composeFile, svcList]) => (
+              Object.entries(groupedServices).map(([composeFile, serviceList]) => (
                 <div key={composeFile} className="compose-group">
-                  <h3 className="compose-group-title">
-                    {composeFiles.find(cf => cf.path === composeFile)?.display_name || composeFile}
-                  </h3>
+                  <h3 className="compose-group-title">{serviceList[0].display_name}</h3>
                   <div className="container-grid">
-                    {svcList.map((serviceObj) => {
-                      const key = `${serviceObj.service}|${serviceObj.compose_file}`;
+                    {serviceList.map(({ service }) => {
+                      const key = `${service}|${composeFile}`;
                       return (
                         <ContainerCard
                           key={key}
-                          service={serviceObj.service}
-                          composeFile={serviceObj.compose_file}
-                          status={containerStatus[key]}
+                          service={service}
+                          composeFile={composeFile}
+                          status={statusKnown ? containerStatus[key] : undefined}
+                          statusKnown={statusKnown}
                           onAction={handleContainerAction}
                         />
                       );
