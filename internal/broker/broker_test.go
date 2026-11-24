@@ -22,6 +22,7 @@ type stubDocker struct {
 	err        error
 	actionErr  error
 	delay      time.Duration
+	postStatus string
 }
 
 func (s *stubDocker) ListContainers(context.Context) ([]dockerapi.ContainerSummary, error) {
@@ -53,7 +54,13 @@ func (s *stubDocker) StopContainer(ctx context.Context, _ string, _ int) error {
 }
 
 func (s *stubDocker) RestartContainer(ctx context.Context, _ string, _ int) error {
-	return s.doAction(ctx, "running", "Up 1 second (healthy)")
+	s.mu.Lock()
+	st := s.postStatus
+	s.mu.Unlock()
+	if st == "" {
+		st = "Up 1 second (healthy)"
+	}
+	return s.doAction(ctx, "running", st)
 }
 
 func (s *stubDocker) doAction(ctx context.Context, newState, newStatus string) error {
@@ -255,5 +262,104 @@ func TestBrokerDockerUnavailable(t *testing.T) {
 	b.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/snapshot", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when Docker is unavailable, got %d", rec.Code)
+	}
+}
+
+func TestBrokerRejectsAmbiguousTargetsAndExcludesOneOff(t *testing.T) {
+	sd := &stubDocker{
+		containers: []dockerapi.ContainerSummary{
+			{
+				ID: "c1", Names: []string{"/hsm-fixture-web-1"}, Image: "nginx:alpine",
+				State: "running", Status: "Up 1m (healthy)",
+				Labels: map[string]string{"com.docker.compose.project": "hsm-fixture", "com.docker.compose.service": "fixture-web"},
+			},
+			{
+				ID: "c2", Names: []string{"/hsm-fixture-web-2"}, Image: "nginx:alpine",
+				State: "running", Status: "Up 1m (healthy)",
+				Labels: map[string]string{"com.docker.compose.project": "hsm-fixture", "com.docker.compose.service": "fixture-web"},
+			},
+			{
+				ID: "c-oneoff", Names: []string{"/hsm-fixture-stopped-run-1"}, Image: "alpine:3.20",
+				State: "exited", Status: "Exited (0) 1m ago",
+				Labels: map[string]string{"com.docker.compose.project": "hsm-fixture", "com.docker.compose.service": "fixture-stopped", "com.docker.compose.oneoff": "True"},
+			},
+		},
+	}
+	b := New(fixtureConfig(false), sd)
+	b.verifyInterval = 5 * time.Millisecond
+	h := b.Handler()
+
+	// Snapshot marks ambiguous service unknown and ignores oneoff container.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/snapshot", nil))
+	var snap SnapshotResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &snap)
+	if snap.Services[0].State != "unknown" || len(snap.Services[0].AllowedActions) != 0 {
+		t.Fatalf("expected ambiguous service unknown with no actions, got %+v", snap.Services[0])
+	}
+	if snap.Services[2].Present {
+		t.Fatalf("expected one-off container excluded for fixture-stopped")
+	}
+
+	// Action against ambiguous target must fail.
+	recAct := httptest.NewRecorder()
+	h.ServeHTTP(recAct, httptest.NewRequest(http.MethodPost, "/v1/services/fixture-web/actions/restart", bytes.NewBufferString(`{"actor":"op"}`)))
+	var op Operation
+	_ = json.Unmarshal(recAct.Body.Bytes(), &op)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		recOp := httptest.NewRecorder()
+		h.ServeHTTP(recOp, httptest.NewRequest(http.MethodGet, "/v1/operations/"+op.ID, nil))
+		_ = json.Unmarshal(recOp.Body.Bytes(), &op)
+		if op.State == "failed" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if op.State != "failed" {
+		t.Fatalf("expected failed operation on ambiguous target, got %+v", op)
+	}
+}
+
+func TestBrokerWaitsForReadyAndFailsOnUnhealthy(t *testing.T) {
+	sd := &stubDocker{
+		postStatus: "Up 1s (health: starting)",
+		containers: []dockerapi.ContainerSummary{
+			{
+				ID: "c1", Names: []string{"/hsm-fixture-web"}, Image: "nginx:alpine",
+				State: "running", Status: "Up 1s (health: starting)",
+				Labels: map[string]string{"com.docker.compose.project": "hsm-fixture", "com.docker.compose.service": "fixture-web"},
+			},
+		},
+	}
+	b := New(fixtureConfig(false), sd)
+	b.verifyInterval = 10 * time.Millisecond
+	b.actionTimeout = 500 * time.Millisecond
+	h := b.Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/services/fixture-web/actions/restart", bytes.NewBufferString(`{"actor":"op"}`)))
+	var op Operation
+	_ = json.Unmarshal(rec.Body.Bytes(), &op)
+
+	go func() {
+		time.Sleep(35 * time.Millisecond)
+		sd.mu.Lock()
+		sd.containers[0].Status = "Up 2s (unhealthy)"
+		sd.mu.Unlock()
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		recOp := httptest.NewRecorder()
+		h.ServeHTTP(recOp, httptest.NewRequest(http.MethodGet, "/v1/operations/"+op.ID, nil))
+		_ = json.Unmarshal(recOp.Body.Bytes(), &op)
+		if op.State == "failed" || op.State == "succeeded" || op.State == "unknown" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if op.State != "failed" || op.VerifiedState != "unhealthy" {
+		t.Fatalf("expected failed/unhealthy operation, got %+v", op)
 	}
 }

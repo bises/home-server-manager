@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	defaultActionTimeout = 25 * time.Second
-	maxAuditRecords      = 200
+	defaultActionTimeout  = 25 * time.Second
+	defaultVerifyInterval = 250 * time.Millisecond
+	maxAuditRecords       = 200
 )
 
 // DockerEngine is the narrow Docker Engine API interface used by the broker.
@@ -115,9 +116,10 @@ type ActionRequest struct {
 
 // Broker owns the Docker Engine connection and enforces the host allowlist.
 type Broker struct {
-	cfg           config.Config
-	docker        DockerEngine
-	actionTimeout time.Duration
+	cfg            config.Config
+	docker         DockerEngine
+	actionTimeout  time.Duration
+	verifyInterval time.Duration
 
 	mu         sync.Mutex
 	inFlight   map[string]string
@@ -128,12 +130,13 @@ type Broker struct {
 // New creates a Broker for the given allowlist config and Docker engine client.
 func New(cfg config.Config, docker DockerEngine) *Broker {
 	return &Broker{
-		cfg:           cfg,
-		docker:        docker,
-		actionTimeout: defaultActionTimeout,
-		inFlight:      make(map[string]string),
-		operations:    make(map[string]*Operation),
-		audit:         make([]AuditRecord, 0, 32),
+		cfg:            cfg,
+		docker:         docker,
+		actionTimeout:  defaultActionTimeout,
+		verifyInterval: defaultVerifyInterval,
+		inFlight:       make(map[string]string),
+		operations:     make(map[string]*Operation),
+		audit:          make([]AuditRecord, 0, 32),
 	}
 }
 
@@ -204,8 +207,8 @@ func (b *Broker) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 	services := make([]ServiceStatus, 0, len(b.cfg.Services))
 	for _, svcCfg := range b.cfg.Services {
 		key := svcCfg.Stack + "/" + svcCfg.Service
-		c, found := byTarget[key]
-		services = append(services, normalizeService(svcCfg, c, found, b.cfg.ReadOnly))
+		matches := byTarget[key]
+		services = append(services, normalizeServiceMatches(svcCfg, matches, b.cfg.ReadOnly))
 	}
 
 	writeJSON(w, http.StatusOK, SnapshotResponse{
@@ -230,11 +233,12 @@ func (b *Broker) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	byTarget := indexByComposeTarget(containers)
-	c, found := byTarget[svcCfg.Stack+"/"+svcCfg.Service]
-	base := normalizeService(svcCfg, c, found, b.cfg.ReadOnly)
+	matches := byTarget[svcCfg.Stack+"/"+svcCfg.Service]
+	base := normalizeServiceMatches(svcCfg, matches, b.cfg.ReadOnly)
 	detail := ServiceDetail{ServiceStatus: base}
 
-	if found {
+	if len(matches) == 1 {
+		c := matches[0]
 		inspected, err := b.docker.InspectContainer(r.Context(), c.ID)
 		if err != nil {
 			writeJSONError(w, http.StatusServiceUnavailable, "docker_inspect_failed", err.Error())
@@ -339,11 +343,18 @@ func (b *Broker) executeOperation(opID string, svcCfg config.ServiceConfig, verb
 	}
 
 	byTarget := indexByComposeTarget(containers)
-	c, found := byTarget[svcCfg.Stack+"/"+svcCfg.Service]
-	if !found {
+	matches := byTarget[svcCfg.Stack+"/"+svcCfg.Service]
+	if len(matches) == 0 {
 		b.finishOperation(opID, svcCfg.ID, verb, actor, "failed", "Container does not exist; create/up is not enabled", "stopped")
 		return
 	}
+	if len(matches) > 1 {
+		b.finishOperation(opID, svcCfg.ID, verb, actor, "failed",
+			fmt.Sprintf("Ambiguous target: %d containers match %s/%s; refusing to act", len(matches), svcCfg.Stack, svcCfg.Service),
+			"unknown")
+		return
+	}
+	c := matches[0]
 
 	switch verb {
 	case "start":
@@ -354,19 +365,8 @@ func (b *Broker) executeOperation(opID string, svcCfg config.ServiceConfig, verb
 		err = b.docker.RestartContainer(ctx, c.ID, 10)
 	}
 
-	// Always re-read Docker after the command completes or times out to verify state.
-	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer verifyCancel()
-	verifiedState := "unknown"
-	if after, vErr := b.docker.ListContainers(verifyCtx); vErr == nil {
-		if c2, ok := indexByComposeTarget(after)[svcCfg.Stack+"/"+svcCfg.Service]; ok {
-			verifiedState = normalizeService(svcCfg, c2, true, b.cfg.ReadOnly).State
-		} else {
-			verifiedState = "stopped"
-		}
-	}
-
 	if err != nil {
+		verifiedState := b.readSingleState(svcCfg)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			b.finishOperation(opID, svcCfg.ID, verb, actor, "unknown",
 				fmt.Sprintf("%s timed out; current observed state is %s. Verify before retrying.", verb, verifiedState),
@@ -379,22 +379,65 @@ func (b *Broker) executeOperation(opID string, svcCfg config.ServiceConfig, verb
 		return
 	}
 
+	// Poll Docker until the container leaves "starting" or the bounded timeout expires.
+	verifiedState := b.waitForReadyState(ctx, svcCfg, verb)
 	if matchesExpectedState(verb, verifiedState) {
 		b.finishOperation(opID, svcCfg.ID, verb, actor, "succeeded",
 			fmt.Sprintf("%s completed; %s is %s", verb, svcCfg.DisplayName, verifiedState),
 			verifiedState)
 		return
 	}
+	if verifiedState == "unhealthy" {
+		b.finishOperation(opID, svcCfg.ID, verb, actor, "failed",
+			fmt.Sprintf("%s failed; %s became unhealthy", verb, svcCfg.DisplayName),
+			verifiedState)
+		return
+	}
 
 	b.finishOperation(opID, svcCfg.ID, verb, actor, "unknown",
-		fmt.Sprintf("%s finished, but observed state is %s", verb, verifiedState),
+		fmt.Sprintf("%s did not reach target state before timeout (observed state: %s)", verb, verifiedState),
 		verifiedState)
+}
+
+func (b *Broker) readSingleState(svcCfg config.ServiceConfig) string {
+	vCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	after, err := b.docker.ListContainers(vCtx)
+	if err != nil {
+		return "unknown"
+	}
+	matches := indexByComposeTarget(after)[svcCfg.Stack+"/"+svcCfg.Service]
+	if len(matches) == 0 {
+		return "stopped"
+	}
+	return normalizeServiceMatches(svcCfg, matches, b.cfg.ReadOnly).State
+}
+
+func (b *Broker) waitForReadyState(ctx context.Context, svcCfg config.ServiceConfig, verb string) string {
+	interval := b.verifyInterval
+	if interval <= 0 {
+		interval = defaultVerifyInterval
+	}
+	for {
+		state := b.readSingleState(svcCfg)
+		if matchesExpectedState(verb, state) || state == "unhealthy" {
+			return state
+		}
+		if (verb == "start" || verb == "restart") && state == "stopped" {
+			return state
+		}
+		select {
+		case <-ctx.Done():
+			return state
+		case <-time.After(interval):
+		}
+	}
 }
 
 func matchesExpectedState(verb, state string) bool {
 	switch verb {
 	case "start", "restart":
-		return state == "running" || state == "starting"
+		return state == "running"
 	case "stop":
 		return state == "stopped"
 	default:
@@ -485,20 +528,35 @@ func newID(prefix string) string {
 	return prefix + "-" + hex.EncodeToString(buf[:])
 }
 
-func indexByComposeTarget(containers []dockerapi.ContainerSummary) map[string]dockerapi.ContainerSummary {
-	out := make(map[string]dockerapi.ContainerSummary, len(containers))
+func indexByComposeTarget(containers []dockerapi.ContainerSummary) map[string][]dockerapi.ContainerSummary {
+	out := make(map[string][]dockerapi.ContainerSummary, len(containers))
 	for _, c := range containers {
+		if strings.EqualFold(c.Labels["com.docker.compose.oneoff"], "true") {
+			continue
+		}
 		proj := c.Labels["com.docker.compose.project"]
 		svc := c.Labels["com.docker.compose.service"]
 		if proj == "" || svc == "" {
 			continue
 		}
 		key := proj + "/" + svc
-		if existing, exists := out[key]; !exists || (existing.State != "running" && c.State == "running") {
-			out[key] = c
-		}
+		out[key] = append(out[key], c)
 	}
 	return out
+}
+
+func normalizeServiceMatches(cfg config.ServiceConfig, matches []dockerapi.ContainerSummary, readOnly bool) ServiceStatus {
+	if len(matches) == 0 {
+		return normalizeService(cfg, dockerapi.ContainerSummary{}, false, readOnly)
+	}
+	if len(matches) > 1 {
+		st := normalizeService(cfg, dockerapi.ContainerSummary{}, false, true)
+		st.Present = true
+		st.State = "unknown"
+		st.StatusText = fmt.Sprintf("Ambiguous target: %d containers match", len(matches))
+		return st
+	}
+	return normalizeService(cfg, matches[0], true, readOnly)
 }
 
 func normalizeService(cfg config.ServiceConfig, c dockerapi.ContainerSummary, found, readOnly bool) ServiceStatus {

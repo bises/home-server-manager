@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/hmac"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -10,18 +11,25 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-const SessionCookieName = "hsm_session"
+const (
+	SessionCookieName    = "hsm_session"
+	defaultPBKDF2Iter    = 100_000
+	loginFailureLimit    = 5
+	loginFailureWindow   = time.Minute
+	pbkdf2FormatPrefix   = "pbkdf2-sha256"
+)
 
 // UserConfig defines a browser user account.
 type UserConfig struct {
-	Username       string `json:"username"`
-	Role           string `json:"role"` // viewer | operator
-	PasswordSHA256 string `json:"password_sha256"`
+	Username     string `json:"username"`
+	Role         string `json:"role"` // viewer | operator
+	PasswordHash string `json:"password_hash"`
 }
 
 // TokenConfig defines a scoped machine credential (e.g. Home Assistant).
@@ -71,16 +79,18 @@ func (p Principal) CanAct(serviceID, verb string) bool {
 	return false
 }
 
-// Manager manages browser sessions and machine token verification.
+// Manager manages browser sessions, password verification, rate limiting, and machine tokens.
 type Manager struct {
 	enabled    bool
 	sessionTTL time.Duration
 	hmacKey    []byte
 	users      []UserConfig
 	tokens     []TokenConfig
+	now        func() time.Time
 
-	mu       sync.Mutex
-	sessions map[string]Session
+	mu           sync.Mutex
+	sessions     map[string]Session
+	loginFails   map[string][]time.Time
 }
 
 // LoadConfig reads an auth JSON file.
@@ -111,7 +121,9 @@ func NewManager(cfg Config) *Manager {
 		hmacKey:    key,
 		users:      cfg.Users,
 		tokens:     cfg.Tokens,
+		now:        func() time.Time { return time.Now().UTC() },
 		sessions:   make(map[string]Session),
+		loginFails: make(map[string][]time.Time),
 	}
 }
 
@@ -120,10 +132,91 @@ func (m *Manager) Enabled() bool {
 	return m != nil && m.enabled
 }
 
-// HashSecret returns the lowercase hex SHA-256 digest of a plaintext secret.
+// HashPassword produces a salted PBKDF2-SHA256 hash string for browser user passwords.
+func HashPassword(password string) string {
+	salt := make([]byte, 16)
+	_, _ = rand.Read(salt)
+	derived, err := pbkdf2.Key(sha256.New, password, salt, defaultPBKDF2Iter, 32)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%s$%d$%s$%s", pbkdf2FormatPrefix, defaultPBKDF2Iter, hex.EncodeToString(salt), hex.EncodeToString(derived))
+}
+
+// VerifyPassword checks password against a salted PBKDF2-SHA256 hash string.
+func VerifyPassword(password, encoded string) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 4 || parts[0] != pbkdf2FormatPrefix {
+		return false
+	}
+	iter, err := strconv.Atoi(parts[1])
+	if err != nil || iter < 10_000 {
+		return false
+	}
+	salt, err := hex.DecodeString(parts[2])
+	if err != nil || len(salt) < 8 {
+		return false
+	}
+	want, err := hex.DecodeString(parts[3])
+	if err != nil || len(want) == 0 {
+		return false
+	}
+	got, err := pbkdf2.Key(sha256.New, password, salt, iter, len(want))
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare(got, want) == 1
+}
+
+// HashSecret returns the lowercase hex SHA-256 digest for high-entropy machine Bearer tokens.
 func HashSecret(secret string) string {
 	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
+}
+
+// AllowLogin returns false if key has exceeded loginFailureLimit within loginFailureWindow.
+func (m *Manager) AllowLogin(key string) bool {
+	now := m.now()
+	cutoff := now.Add(-loginFailureWindow)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.pruneFailuresLocked(key, cutoff)
+	return len(kept) < loginFailureLimit
+}
+
+// RecordLoginFailure records a failed login attempt for rate limiting.
+func (m *Manager) RecordLoginFailure(key string) {
+	now := m.now()
+	cutoff := now.Add(-loginFailureWindow)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.pruneFailuresLocked(key, cutoff)
+	m.loginFails[key] = append(kept, now)
+}
+
+// ResetLoginFailures clears rate-limit history after a successful login.
+func (m *Manager) ResetLoginFailures(key string) {
+	m.mu.Lock()
+	delete(m.loginFails, key)
+	m.mu.Unlock()
+}
+
+func (m *Manager) pruneFailuresLocked(key string, cutoff time.Time) []time.Time {
+	prev := m.loginFails[key]
+	kept := prev[:0]
+	for _, ts := range prev {
+		if ts.After(cutoff) {
+			kept = append(kept, ts)
+		}
+	}
+	if len(kept) == 0 {
+		delete(m.loginFails, key)
+		return nil
+	}
+	m.loginFails[key] = kept
+	return kept
 }
 
 // AuthenticateUser verifies username and password and issues a new browser session.
@@ -132,16 +225,15 @@ func (m *Manager) AuthenticateUser(username, password string) (Session, string, 
 	if username == "" || password == "" {
 		return Session{}, "", false
 	}
-	passHash := HashSecret(password)
 	for _, u := range m.users {
 		if subtle.ConstantTimeCompare([]byte(u.Username), []byte(username)) == 1 &&
-			subtle.ConstantTimeCompare([]byte(strings.ToLower(u.PasswordSHA256)), []byte(passHash)) == 1 {
+			VerifyPassword(password, u.PasswordHash) {
 			sess := Session{
 				ID:        randomHex(16),
 				Username:  u.Username,
 				Role:      u.Role,
 				CSRFToken: randomHex(16),
-				ExpiresAt: time.Now().UTC().Add(m.sessionTTL),
+				ExpiresAt: m.now().Add(m.sessionTTL),
 			}
 			m.mu.Lock()
 			m.sessions[sess.ID] = sess
@@ -166,7 +258,7 @@ func (m *Manager) VerifySessionCookie(val string) (Session, bool) {
 
 	m.mu.Lock()
 	sess, ok := m.sessions[id]
-	if ok && time.Now().UTC().After(sess.ExpiresAt) {
+	if ok && m.now().After(sess.ExpiresAt) {
 		delete(m.sessions, id)
 		ok = false
 	}

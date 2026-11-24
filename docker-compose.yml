@@ -1,13 +1,40 @@
 services:
-  home-server-api:
+  broker:
     build: .
-    container_name: home-server-api
-    ports:
-      - "127.0.0.1:8080:5000"
-    environment:
-      - DOCKER_COMPOSE_PATH=/app/test-docker-compose.yml
+    container_name: home-server-broker
+    command:
+      - home-server-manager
+      - broker
+      - --config
+      - /etc/home-server-manager/manager.json
+      - --socket
+      - /run/hsm/broker.sock
     volumes:
-      - .:/app:ro
-      - /var/run/docker.sock:/var/run/docker.sock # To allow Docker commands from within container
-      - ./test-docker-compose.yml:/app/test-docker-compose.yml:ro # Test services (nginx, redis, postgres)
+      - /var/run/docker.sock:/var/run/docker.sock
+      - hsm-socket:/run/hsm
+      - ./fixtures/manager.json:/etc/home-server-manager/manager.json:ro
     restart: unless-stopped
+
+  web:
+    build: .
+    container_name: home-server-web
+    depends_on:
+      - broker
+    command:
+      - home-server-manager
+      - web
+      - --config
+      - /etc/home-server-manager/manager.json
+      - --socket
+      - /run/hsm/broker.sock
+      - --listen
+      - 0.0.0.0:8090
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - hsm-socket:/run/hsm
+      - ./fixtures/manager.json:/etc/home-server-manager/manager.json:ro
+    restart: unless-stopped
+
+volumes:
+  hsm-socket:

@@ -116,11 +116,11 @@ func TestDisableUIServesAPIOnly(t *testing.T) {
 		t.Fatalf("unexpected snapshot: %+v", snap.Summary)
 	}
 
-	// Action endpoint must return 403 in Phase 1.
+	// Action endpoint must return 401 when auth is not configured.
 	recAct := httptest.NewRecorder()
 	h.ServeHTTP(recAct, httptest.NewRequest(http.MethodPost, "/api/v1/services/fixture-web/actions/restart", nil))
-	if recAct.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for action in Phase 1, got %d", recAct.Code)
+	if recAct.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for action without auth configured, got %d", recAct.Code)
 	}
 }
 
@@ -176,8 +176,8 @@ func TestPhase2AuthRoleScopeAndCSRF(t *testing.T) {
 	}
 	mgr := auth.NewManager(auth.Config{
 		Users: []auth.UserConfig{
-			{Username: "viewer1", Role: "viewer", PasswordSHA256: auth.HashSecret("vpass")},
-			{Username: "op1", Role: "operator", PasswordSHA256: auth.HashSecret("opass")},
+			{Username: "viewer1", Role: "viewer", PasswordHash: auth.HashPassword("vpass")},
+			{Username: "op1", Role: "operator", PasswordHash: auth.HashPassword("opass")},
 		},
 		Tokens: []auth.TokenConfig{
 			{ID: "ha-read", Actor: "ha-sensors", TokenSHA256: auth.HashSecret("rtok"), Read: true},

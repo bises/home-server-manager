@@ -87,7 +87,7 @@ func (s *Server) authEnabled() bool {
 
 func (s *Server) authenticateAPI(r *http.Request) (auth.Principal, bool) {
 	if !s.authEnabled() {
-		return auth.Principal{Kind: "browser", Actor: "local-operator", Role: "operator", Read: true}, true
+		return auth.Principal{Kind: "browser", Actor: "local-viewer", Role: "viewer", Read: true}, true
 	}
 	if authHdr := r.Header.Get("Authorization"); authHdr != "" {
 		return s.auth.VerifyBearer(authHdr)
@@ -108,7 +108,7 @@ func (s *Server) authenticateAPI(r *http.Request) (auth.Principal, bool) {
 
 func (s *Server) requireBrowserSession(w http.ResponseWriter, r *http.Request) (auth.Session, bool) {
 	if !s.authEnabled() {
-		return auth.Session{Username: "local", Role: "operator"}, true
+		return auth.Session{Username: "local", Role: "viewer"}, true
 	}
 	c, err := r.Cookie(auth.SessionCookieName)
 	if err != nil {
@@ -214,6 +214,10 @@ func (s *Server) handleAPIOperation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIAction(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() {
+		writeErrorCode(w, http.StatusUnauthorized, "auth_required", "Authentication must be configured to run actions")
+		return
+	}
 	p, ok := s.authenticateAPI(r)
 	if !ok {
 		writeErrorCode(w, http.StatusUnauthorized, "unauthorized", "Authentication required")
@@ -328,11 +332,19 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.renderStatus(w, http.StatusBadRequest, "login.html", loginData{Title: "Sign in", Error: "Invalid form submission"})
 		return
 	}
+	rateKey := r.RemoteAddr
+	if !s.auth.AllowLogin(rateKey) {
+		w.Header().Set("Retry-After", "60")
+		s.renderStatus(w, http.StatusTooManyRequests, "login.html", loginData{Title: "Sign in", Error: "Too many failed login attempts. Try again in a minute."})
+		return
+	}
 	_, cookieVal, ok := s.auth.AuthenticateUser(r.FormValue("username"), r.FormValue("password"))
 	if !ok {
+		s.auth.RecordLoginFailure(rateKey)
 		s.renderStatus(w, http.StatusUnauthorized, "login.html", loginData{Title: "Sign in", Error: "Invalid username or password"})
 		return
 	}
+	s.auth.ResetLoginFailures(rateKey)
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
 		Value:    cookieVal,
@@ -486,6 +498,10 @@ func (s *Server) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBrowserAction(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() {
+		http.Error(w, "authentication must be configured to run actions", http.StatusForbidden)
+		return
+	}
 	sess, ok := s.requireBrowserSession(w, r)
 	if !ok {
 		return

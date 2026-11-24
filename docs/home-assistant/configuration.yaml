@@ -1,7 +1,8 @@
 # Example Home Assistant configuration for Home Server Manager (Phase 2)
-# Set in secrets.yaml:
+# Set in secrets.yaml (see docs/home-assistant/README.md):
 #   hsm_snapshot_url: "http://127.0.0.1:8090/api/v1/snapshot"
 #   hsm_restart_fixture_web_url: "http://127.0.0.1:8090/api/v1/services/fixture-web/actions/restart"
+#   hsm_operation_base_url: "http://127.0.0.1:8090/api/v1/operations"
 #   hsm_read_token: "Bearer <READ_ONLY_TOKEN>"
 #   hsm_action_token: "Bearer <SCOPED_ACTION_TOKEN>"
 
@@ -60,26 +61,57 @@ rest_command:
       Authorization: !secret hsm_action_token
       Content-Type: application/json
 
+  hsm_poll_operation:
+    url: "{{ base_url }}/{{ operation_id }}"
+    method: GET
+    headers:
+      Authorization: !secret hsm_action_token
+
 script:
   restart_fixture_web:
     alias: "Restart Fixture Web"
     mode: single
+    variables:
+      op_base_url: !secret hsm_operation_base_url
     sequence:
       - action: rest_command.hsm_restart_fixture_web
         response_variable: restart_resp
       - if:
           - condition: template
-            value_template: "{{ restart_resp.status == 202 }}"
+            value_template: "{{ restart_resp.status != 202 }}"
         then:
-          - action: persistent_notification.create
-            data:
-              title: "Fixture Web Restart Accepted"
-              message: "Operation {{ restart_resp.content.id }} submitted; check Home Server Fixture Web sensor for completion."
-        else:
           - action: persistent_notification.create
             data:
               title: "Fixture Web Restart Rejected"
               message: "HTTP {{ restart_resp.status }}: {{ restart_resp.content.message | default('unknown error') }}"
+          - stop: "Restart request rejected"
+      - variables:
+          op_id: "{{ restart_resp.content.id }}"
+          final_state: "unknown"
+          final_message: "Timed out waiting for operation confirmation; check current service state."
+      - repeat:
+          count: 10
+          sequence:
+            - delay:
+                seconds: 2
+            - action: rest_command.hsm_poll_operation
+              data:
+                base_url: "{{ op_base_url }}"
+                operation_id: "{{ op_id }}"
+              response_variable: poll_resp
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ poll_resp.status == 200 and poll_resp.content.state in ['succeeded', 'failed', 'unknown'] }}
+              then:
+                - variables:
+                    final_state: "{{ poll_resp.content.state }}"
+                    final_message: "{{ poll_resp.content.message }}"
+                - stop: "Operation reached terminal state"
+      - action: persistent_notification.create
+        data:
+          title: "Fixture Web Restart: {{ final_state }}"
+          message: "Operation {{ op_id }}: {{ final_message }}"
 
 # Example Lovelace dashboard button card with confirmation:
 #

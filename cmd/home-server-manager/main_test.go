@@ -134,11 +134,11 @@ func TestEndToEndUnixSocketBrokerAndWeb(t *testing.T) {
 		t.Fatalf("expected 200 for detail, got %d", recDet.Code)
 	}
 
-	// Broker denies mutations in Phase 1
+	// Web denies unauthenticated mutations before reaching the broker.
 	recAct := httptest.NewRecorder()
 	apiHandler.ServeHTTP(recAct, httptest.NewRequest(http.MethodPost, "/api/v1/services/fixture-web/actions/restart", nil))
-	if recAct.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for action, got %d", recAct.Code)
+	if recAct.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated action, got %d", recAct.Code)
 	}
 
 	// Docker goes down -> stale state preserved

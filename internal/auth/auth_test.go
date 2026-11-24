@@ -5,8 +5,8 @@ import "testing"
 func TestBrowserSessionCSRFAndScopedTokens(t *testing.T) {
 	m := NewManager(Config{
 		Users: []UserConfig{
-			{Username: "viewer1", Role: "viewer", PasswordSHA256: HashSecret("view-pass")},
-			{Username: "op1", Role: "operator", PasswordSHA256: HashSecret("op-pass")},
+			{Username: "viewer1", Role: "viewer", PasswordHash: HashPassword("view-pass")},
+			{Username: "op1", Role: "operator", PasswordHash: HashPassword("op-pass")},
 		},
 		Tokens: []TokenConfig{
 			{ID: "ha-read", Actor: "home-assistant-sensors", TokenSHA256: HashSecret("read-tok"), Read: true},
@@ -27,6 +27,21 @@ func TestBrowserSessionCSRFAndScopedTokens(t *testing.T) {
 	// Wrong password fails.
 	if _, _, ok := m.AuthenticateUser("op1", "wrong"); ok {
 		t.Fatal("expected wrong password to fail")
+	}
+
+	// Rate limiting blocks after 5 failed attempts.
+	for i := 0; i < loginFailureLimit; i++ {
+		if !m.AllowLogin("127.0.0.1") {
+			t.Fatalf("unexpected rate limit at attempt %d", i)
+		}
+		m.RecordLoginFailure("127.0.0.1")
+	}
+	if m.AllowLogin("127.0.0.1") {
+		t.Fatal("expected rate limit after 5 failed attempts")
+	}
+	m.ResetLoginFailures("127.0.0.1")
+	if !m.AllowLogin("127.0.0.1") {
+		t.Fatal("expected rate limit reset after success")
 	}
 
 	// Operator session succeeds and verifies cookie + CSRF.

@@ -97,6 +97,9 @@ func runWeb(ctx context.Context, args []string) error {
 		}
 		authMgr = auth.NewManager(authCfg)
 	}
+	if !cfg.ReadOnly && (authMgr == nil || !authMgr.Enabled()) {
+		return fmt.Errorf("writable configuration (read_only=false) requires --auth-config with at least one user or token")
+	}
 
 	snapSvc := snapshot.NewService(cfg, snapshot.NewUnixBrokerClient(*sockPath), hostmetrics.NewReader())
 	webSrv, err := web.NewServer(snapSvc, web.Options{
