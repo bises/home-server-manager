@@ -502,3 +502,47 @@ h2 {
 .muted {
   color: var(--muted);
 }
+
+.logout-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.login-box {
+  max-width: 400px;
+  margin: 2rem auto;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.login-form input {
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.action-box {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+

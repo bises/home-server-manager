@@ -1,0 +1,51 @@
+{
+  "host_label": "hsm-fixture-host",
+  "read_only": false,
+  "cache_ttl_seconds": 10,
+  "mounts": [
+    {
+      "id": "root",
+      "label": "Root storage",
+      "path": "/"
+    },
+    {
+      "id": "backup",
+      "label": "Backup mount",
+      "path": "/mnt/immich-backup"
+    }
+  ],
+  "services": [
+    {
+      "id": "fixture-web",
+      "display_name": "Fixture Web",
+      "stack": "hsm-fixture",
+      "service": "fixture-web",
+      "protected": false,
+      "allowed_actions": ["start", "stop", "restart"],
+      "url": "http://127.0.0.1:18080"
+    },
+    {
+      "id": "fixture-unhealthy",
+      "display_name": "Fixture Unhealthy",
+      "stack": "hsm-fixture",
+      "service": "fixture-unhealthy",
+      "protected": false,
+      "allowed_actions": ["restart"]
+    },
+    {
+      "id": "fixture-stopped",
+      "display_name": "Fixture Stopped",
+      "stack": "hsm-fixture",
+      "service": "fixture-stopped",
+      "protected": false,
+      "allowed_actions": ["start"]
+    },
+    {
+      "id": "fixture-db",
+      "display_name": "Fixture Postgres",
+      "stack": "hsm-fixture",
+      "service": "fixture-db",
+      "protected": true
+    }
+  ]
+}

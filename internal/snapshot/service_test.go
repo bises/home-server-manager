@@ -28,7 +28,15 @@ func (s *stubBroker) FetchServiceDetail(context.Context, string) (broker.Service
 	return broker.ServiceDetail{}, s.err
 }
 
-func (s *stubBroker) SubmitAction(context.Context, string, string) (int, []byte, error) {
+func (s *stubBroker) FetchOperation(context.Context, string) (broker.Operation, error) {
+	return broker.Operation{}, s.err
+}
+
+func (s *stubBroker) FetchActivity(context.Context) ([]broker.AuditRecord, error) {
+	return nil, s.err
+}
+
+func (s *stubBroker) SubmitAction(context.Context, string, string, string) (int, []byte, error) {
 	return http.StatusForbidden, []byte(`{"error":"read_only_mode"}`), nil
 }
 

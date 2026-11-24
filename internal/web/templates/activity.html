@@ -4,10 +4,58 @@
     <h1>Activity</h1>
     <p class="meta-line">Host: {{.Snap.Host.Hostname}}</p>
   </div>
+  <div class="actions">
+    <a class="btn" href="/activity">Refresh</a>
+  </div>
 </section>
 
+{{if .LoadError}}
+<div class="banner banner-warn" role="alert">Could not load activity: {{.LoadError}}</div>
+{{else if .Events}}
 <section class="panel">
-  <h2>Read-only pilot</h2>
-  <p class="muted">No service mutations are enabled in Phase 1. Authenticated actions and host journal audit records will appear here in Phase 2.</p>
+  <div class="table-wrap">
+    <table class="svc-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Actor</th>
+          <th>Service</th>
+          <th>Action</th>
+          <th>Outcome</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Events}}
+        <tr>
+          <td class="mono"><time datetime="{{.Timestamp}}">{{.Timestamp}}</time></td>
+          <td>{{.Actor}}</td>
+          <td class="mono"><a href="/services/{{.ServiceID}}">{{.ServiceID}}</a></td>
+          <td class="mono">{{.Verb}}</td>
+          <td><span class="badge badge-{{if eq .Outcome "succeeded"}}running{{else if eq .Outcome "failed"}}unhealthy{{else}}starting{{end}}">{{stateIcon .Outcome}} {{stateLabel .Outcome}}</span></td>
+          <td>{{.Message}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <div class="card-stack">
+    {{range .Events}}
+    <article class="svc-card">
+      <div class="svc-card-head">
+        <strong>{{.ServiceID}} · {{.Verb}}</strong>
+        <span class="badge badge-{{if eq .Outcome "succeeded"}}running{{else if eq .Outcome "failed"}}unhealthy{{else}}starting{{end}}">{{stateIcon .Outcome}} {{stateLabel .Outcome}}</span>
+      </div>
+      <p class="muted">{{.Actor}} · <time datetime="{{.Timestamp}}">{{.Timestamp}}</time></p>
+      <p>{{.Message}}</p>
+    </article>
+    {{end}}
+  </div>
 </section>
+{{else}}
+<section class="panel">
+  <h2>No recorded actions yet</h2>
+  <p class="muted">{{if .Snap.ReadOnly}}Read-only mode is active; no service mutations are enabled.{{else}}Dashboard and Home Assistant actions will appear here with actor, target, and verified outcome.{{end}}</p>
+</section>
+{{end}}
 {{end}}

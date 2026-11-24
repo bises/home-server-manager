@@ -11,6 +11,22 @@
   Could not load service detail: {{.LoadError}}
 </div>
 {{else}}
+
+{{if .ActionError}}
+<div class="banner banner-warn" role="alert">
+  Action error: {{.ActionError}}
+</div>
+{{end}}
+
+{{if .Operation}}
+<div class="banner banner-info" role="status">
+  <strong>Operation {{.Operation.Verb}} ({{.Operation.State}}):</strong> {{.Operation.Message}}
+  {{if or (eq .Operation.State "accepted") (eq .Operation.State "running")}}
+    · <a href="/services/{{.Detail.ID}}?op={{.Operation.ID}}">Refresh status</a>
+  {{end}}
+</div>
+{{end}}
+
 <section class="panel">
   <div class="detail-head">
     <span class="badge badge-{{.Detail.State}}">{{stateIcon .Detail.State}} {{stateLabel .Detail.State}}</span>
@@ -39,9 +55,25 @@
   </div>
   {{end}}
 
+  {{if and (eq .User.Role "operator") (not .Detail.Protected) (gt (len .Detail.AllowedActions) 0)}}
+  <div class="action-box">
+    <h2>Service controls</h2>
+    <p class="muted">Stopping or restarting <strong>{{.Detail.DisplayName}}</strong> will briefly interrupt connections to this service.</p>
+    <div class="action-row">
+      {{range .Detail.AllowedActions}}
+      <form method="post" action="/services/{{$.Detail.ID}}/action" onsubmit="return confirm('Run {{.}} on {{$.Detail.DisplayName}}?');">
+        <input type="hidden" name="csrf_token" value="{{$.User.CSRFToken}}">
+        <input type="hidden" name="verb" value="{{.}}">
+        <button class="btn" type="submit">{{.}}</button>
+      </form>
+      {{end}}
+    </div>
+  </div>
+  {{else}}
   <p class="banner banner-info">
-    Read-only pilot (Phase 1): start, stop, and restart actions are disabled at the broker.
+    {{if .Detail.Protected}}Protected service: view-only.{{else if ne .User.Role "operator"}}Viewer role: actions are disabled.{{else}}Read-only mode: no actions enabled for this service.{{end}}
   </p>
+  {{end}}
 </section>
 {{end}}
 {{end}}

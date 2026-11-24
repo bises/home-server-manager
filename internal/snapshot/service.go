@@ -1,6 +1,7 @@
 package snapshot
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -21,7 +22,9 @@ import (
 type BrokerClient interface {
 	FetchSnapshot(ctx context.Context) (broker.SnapshotResponse, error)
 	FetchServiceDetail(ctx context.Context, id string) (broker.ServiceDetail, error)
-	SubmitAction(ctx context.Context, id, verb string) (int, []byte, error)
+	FetchOperation(ctx context.Context, id string) (broker.Operation, error)
+	FetchActivity(ctx context.Context) ([]broker.AuditRecord, error)
+	SubmitAction(ctx context.Context, id, verb, actor string) (int, []byte, error)
 }
 
 // UnixBrokerClient implements BrokerClient over a Unix domain socket.
@@ -86,12 +89,58 @@ func (c *UnixBrokerClient) FetchServiceDetail(ctx context.Context, id string) (b
 	return out, nil
 }
 
-func (c *UnixBrokerClient) SubmitAction(ctx context.Context, id, verb string) (int, []byte, error) {
+func (c *UnixBrokerClient) FetchOperation(ctx context.Context, id string) (broker.Operation, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://broker/v1/operations/"+url.PathEscape(id), nil)
+	if err != nil {
+		return broker.Operation{}, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return broker.Operation{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return broker.Operation{}, readBrokerError(resp)
+	}
+	var out broker.Operation
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return broker.Operation{}, fmt.Errorf("decode operation: %w", err)
+	}
+	return out, nil
+}
+
+func (c *UnixBrokerClient) FetchActivity(ctx context.Context) ([]broker.AuditRecord, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://broker/v1/activity", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readBrokerError(resp)
+	}
+	var out struct {
+		Events []broker.AuditRecord `json:"events"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode activity: %w", err)
+	}
+	return out.Events, nil
+}
+
+func (c *UnixBrokerClient) SubmitAction(ctx context.Context, id, verb, actor string) (int, []byte, error) {
 	target := fmt.Sprintf("http://broker/v1/services/%s/actions/%s", url.PathEscape(id), url.PathEscape(verb))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, nil)
+	payload, _ := json.Marshal(broker.ActionRequest{Actor: actor})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(payload))
 	if err != nil {
 		return 0, nil, err
 	}
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return 0, nil, err
@@ -267,9 +316,19 @@ func (s *Service) ServiceDetail(ctx context.Context, id string) (broker.ServiceD
 	return s.broker.FetchServiceDetail(ctx, id)
 }
 
-// SubmitAction forwards an action request to the broker.
-func (s *Service) SubmitAction(ctx context.Context, id, verb string) (int, []byte, error) {
-	return s.broker.SubmitAction(ctx, id, verb)
+// Operation returns the current status of an asynchronous operation.
+func (s *Service) Operation(ctx context.Context, id string) (broker.Operation, error) {
+	return s.broker.FetchOperation(ctx, id)
+}
+
+// Activity returns recent audit records from the broker.
+func (s *Service) Activity(ctx context.Context) ([]broker.AuditRecord, error) {
+	return s.broker.FetchActivity(ctx)
+}
+
+// SubmitAction forwards an authenticated action request to the broker.
+func (s *Service) SubmitAction(ctx context.Context, id, verb, actor string) (int, []byte, error) {
+	return s.broker.SubmitAction(ctx, id, verb, actor)
 }
 
 func summarize(services []broker.ServiceStatus) SummaryCounts {

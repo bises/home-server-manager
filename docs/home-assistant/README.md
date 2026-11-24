@@ -1,14 +1,17 @@
-# Home Assistant RESTful Sensors (Phase 1 Read-Only)
+# Home Assistant RESTful Sensors & Actions
 
-This example polls `GET /api/v1/snapshot` from `home-server-manager web --disable-ui` using Home Assistant's built-in `rest` integration.
+This example integrates Home Assistant with `home-server-manager web --disable-ui` using:
+- Built-in `rest` sensors (read-only token)
+- Built-in `rest_command` + `script` + Dashboard button confirmation (separately scoped action token)
 
-1. Run the broker and API-only web service on loopback (or private HTTPS in Phase 3):
+## 1. Secrets (`secrets.yaml`)
 
-```sh
-home-server-manager broker --config fixtures/manager.json --socket /tmp/hsm-broker.sock
-home-server-manager web --config fixtures/manager.json --socket /tmp/hsm-broker.sock --listen 127.0.0.1:8090 --disable-ui
+```yaml
+hsm_base_url: "http://127.0.0.1:8090"
+hsm_read_token: "Bearer <YOUR_READ_ONLY_TOKEN>"
+hsm_action_token: "Bearer <YOUR_SCOPED_ACTION_TOKEN>"
 ```
 
-2. Add the sensors from `configuration.yaml` to your Home Assistant config (and define `hsm_snapshot_url` in `secrets.yaml`, e.g. `http://127.0.0.1:8090/api/v1/snapshot`).
+## 2. Configuration
 
-3. In Phase 2, scoped `rest_command` actions and dashboard confirmation buttons will be added for approved services.
+Copy `configuration.yaml` entries into your Home Assistant `configuration.yaml`, and add the dashboard button card from the bottom of `configuration.yaml` to a Lovelace view.

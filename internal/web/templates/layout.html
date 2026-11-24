@@ -18,6 +18,13 @@
           <li><a href="/activity" {{if eq .ActiveNav "activity"}}aria-current="page"{{end}}>Activity</a></li>
         </ul>
       </nav>
+      {{if and .User.Enabled .User.Username}}
+      <form method="post" action="/logout" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{.User.CSRFToken}}">
+        <span class="pill">{{.User.Username}} ({{.User.Role}})</span>
+        <button class="btn btn-sm" type="submit">Sign out</button>
+      </form>
+      {{end}}
     </div>
   </header>
   <main id="main" class="container">

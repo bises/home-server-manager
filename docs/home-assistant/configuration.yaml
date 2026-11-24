@@ -1,11 +1,16 @@
-# Example Home Assistant configuration for Home Server Manager (Phase 1 read-only)
-# Place in configuration.yaml (or a package) and set `hsm_snapshot_url` in secrets.yaml:
+# Example Home Assistant configuration for Home Server Manager (Phase 2)
+# Set in secrets.yaml:
 #   hsm_snapshot_url: "http://127.0.0.1:8090/api/v1/snapshot"
+#   hsm_restart_fixture_web_url: "http://127.0.0.1:8090/api/v1/services/fixture-web/actions/restart"
+#   hsm_read_token: "Bearer <READ_ONLY_TOKEN>"
+#   hsm_action_token: "Bearer <SCOPED_ACTION_TOKEN>"
 
 rest:
   - resource: !secret hsm_snapshot_url
     scan_interval: 30
     timeout: 10
+    headers:
+      Authorization: !secret hsm_read_token
     sensor:
       - name: "Home Server Freshness"
         unique_id: hsm_snapshot_freshness
@@ -47,14 +52,42 @@ rest:
           {% set svcs = value_json.services | selectattr('id', 'equalto', 'fixture-web') | list %}
           {{ svcs[0].state if svcs else 'unknown' }}
 
-      - name: "Home Server Fixture Unhealthy"
-        unique_id: hsm_svc_fixture_unhealthy
-        value_template: >-
-          {% set svcs = value_json.services | selectattr('id', 'equalto', 'fixture-unhealthy') | list %}
-          {{ svcs[0].state if svcs else 'unknown' }}
+rest_command:
+  hsm_restart_fixture_web:
+    url: !secret hsm_restart_fixture_web_url
+    method: POST
+    headers:
+      Authorization: !secret hsm_action_token
+      Content-Type: application/json
 
-      - name: "Home Server Fixture Stopped"
-        unique_id: hsm_svc_fixture_stopped
-        value_template: >-
-          {% set svcs = value_json.services | selectattr('id', 'equalto', 'fixture-stopped') | list %}
-          {{ svcs[0].state if svcs else 'unknown' }}
+script:
+  restart_fixture_web:
+    alias: "Restart Fixture Web"
+    mode: single
+    sequence:
+      - action: rest_command.hsm_restart_fixture_web
+        response_variable: restart_resp
+      - if:
+          - condition: template
+            value_template: "{{ restart_resp.status == 202 }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "Fixture Web Restart Accepted"
+              message: "Operation {{ restart_resp.content.id }} submitted; check Home Server Fixture Web sensor for completion."
+        else:
+          - action: persistent_notification.create
+            data:
+              title: "Fixture Web Restart Rejected"
+              message: "HTTP {{ restart_resp.status }}: {{ restart_resp.content.message | default('unknown error') }}"
+
+# Example Lovelace dashboard button card with confirmation:
+#
+# type: button
+# name: Restart Fixture Web
+# icon: mdi:restart
+# tap_action:
+#   action: perform-action
+#   perform_action: script.restart_fixture_web
+#   confirmation:
+#     text: "Restart Fixture Web? Active connections will briefly drop."

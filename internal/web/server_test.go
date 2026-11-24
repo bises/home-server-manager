@@ -6,9 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
+	"github.com/bises/home-server-manager/internal/auth"
 	"github.com/bises/home-server-manager/internal/broker"
 	"github.com/bises/home-server-manager/internal/config"
 	"github.com/bises/home-server-manager/internal/hostmetrics"
@@ -36,8 +38,20 @@ func (f *fakeBroker) FetchServiceDetail(_ context.Context, id string) (broker.Se
 	return broker.ServiceDetail{}, errors.New("broker HTTP 404: unknown_service")
 }
 
-func (f *fakeBroker) SubmitAction(context.Context, string, string) (int, []byte, error) {
-	return http.StatusForbidden, []byte(`{"error":"read_only_mode","message":"Changes are disabled during the read-only pilot"}`), nil
+func (f *fakeBroker) FetchOperation(_ context.Context, id string) (broker.Operation, error) {
+	return broker.Operation{ID: id, ServiceID: "fixture-web", Verb: "restart", State: "succeeded"}, nil
+}
+
+func (f *fakeBroker) FetchActivity(context.Context) ([]broker.AuditRecord, error) {
+	return []broker.AuditRecord{}, nil
+}
+
+func (f *fakeBroker) SubmitAction(_ context.Context, id, verb, actor string) (int, []byte, error) {
+	if f.snap.ReadOnly {
+		return http.StatusForbidden, []byte(`{"error":"read_only_mode","message":"Changes are disabled during the read-only pilot"}`), nil
+	}
+	b, _ := json.Marshal(broker.Operation{ID: "op-123", ServiceID: id, Verb: verb, Actor: actor, State: "accepted"})
+	return http.StatusAccepted, b, nil
 }
 
 func newTestServer(t *testing.T, disableUI bool) (*Server, *fakeBroker) {
@@ -140,5 +154,106 @@ func TestUIRendersOverviewServicesAndStaleBanner(t *testing.T) {
 	h.ServeHTTP(recStale, httptest.NewRequest(http.MethodGet, "/?refresh=1", nil))
 	if recStale.Code != http.StatusOK || !strings.Contains(recStale.Body.String(), "Docker status stale") {
 		t.Fatalf("expected stale status banner in overview")
+	}
+}
+
+func TestPhase2AuthRoleScopeAndCSRF(t *testing.T) {
+	cfg := config.Config{
+		HostLabel: "hsm-fixture-host",
+		ReadOnly:  false,
+		Services: []config.ServiceConfig{
+			{ID: "fixture-web", DisplayName: "Fixture Web", Stack: "hsm-fixture", Service: "fixture-web", AllowedActions: []string{"restart"}},
+		},
+	}
+	fb := &fakeBroker{
+		snap: broker.SnapshotResponse{
+			SampledAt: "2026-11-24T20:00:00Z",
+			ReadOnly:  false,
+			Services: []broker.ServiceStatus{
+				{ID: "fixture-web", DisplayName: "Fixture Web", Stack: "hsm-fixture", Service: "fixture-web", Present: true, State: "running", AllowedActions: []string{"restart"}},
+			},
+		},
+	}
+	mgr := auth.NewManager(auth.Config{
+		Users: []auth.UserConfig{
+			{Username: "viewer1", Role: "viewer", PasswordSHA256: auth.HashSecret("vpass")},
+			{Username: "op1", Role: "operator", PasswordSHA256: auth.HashSecret("opass")},
+		},
+		Tokens: []auth.TokenConfig{
+			{ID: "ha-read", Actor: "ha-sensors", TokenSHA256: auth.HashSecret("rtok"), Read: true},
+			{ID: "ha-act", Actor: "ha-actions", TokenSHA256: auth.HashSecret("atok"), Actions: map[string][]string{"fixture-web": {"restart"}}},
+		},
+	})
+	svc := snapshot.NewService(cfg, fb, hostmetrics.NewReader())
+	srv, err := NewServer(svc, Options{Auth: mgr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Handler()
+
+	// Unauthenticated API -> 401; UI -> 303 redirect to /login.
+	recUnauth := httptest.NewRecorder()
+	h.ServeHTTP(recUnauth, httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil))
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", recUnauth.Code)
+	}
+	recUI := httptest.NewRecorder()
+	h.ServeHTTP(recUI, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recUI.Code != http.StatusSeeOther {
+		t.Fatalf("expected 303 redirect to /login, got %d", recUI.Code)
+	}
+
+	// Read-only token: reads snapshot (200), denied action (403).
+	reqR := httptest.NewRequest(http.MethodGet, "/api/v1/snapshot", nil)
+	reqR.Header.Set("Authorization", "Bearer rtok")
+	recR := httptest.NewRecorder()
+	h.ServeHTTP(recR, reqR)
+	if recR.Code != http.StatusOK {
+		t.Fatalf("expected 200 for read token, got %d", recR.Code)
+	}
+	reqRAct := httptest.NewRequest(http.MethodPost, "/api/v1/services/fixture-web/actions/restart", nil)
+	reqRAct.Header.Set("Authorization", "Bearer rtok")
+	recRAct := httptest.NewRecorder()
+	h.ServeHTTP(recRAct, reqRAct)
+	if recRAct.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for read token acting, got %d", recRAct.Code)
+	}
+
+	// Action token: allowed restart on fixture-web (202), denied stop (403).
+	reqA := httptest.NewRequest(http.MethodPost, "/api/v1/services/fixture-web/actions/restart", nil)
+	reqA.Header.Set("Authorization", "Bearer atok")
+	recA := httptest.NewRecorder()
+	h.ServeHTTP(recA, reqA)
+	if recA.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 for scoped action token, got %d: %s", recA.Code, recA.Body.String())
+	}
+	reqAStop := httptest.NewRequest(http.MethodPost, "/api/v1/services/fixture-web/actions/stop", nil)
+	reqAStop.Header.Set("Authorization", "Bearer atok")
+	recAStop := httptest.NewRecorder()
+	h.ServeHTTP(recAStop, reqAStop)
+	if recAStop.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for unapproved verb, got %d", recAStop.Code)
+	}
+
+	// Browser operator login + CSRF enforcement.
+	form := url.Values{"username": {"op1"}, "password": {"opass"}}
+	reqLogin := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(form.Encode()))
+	reqLogin.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recLogin := httptest.NewRecorder()
+	h.ServeHTTP(recLogin, reqLogin)
+	if recLogin.Code != http.StatusSeeOther || len(recLogin.Result().Cookies()) == 0 {
+		t.Fatalf("expected login cookie, got %d", recLogin.Code)
+	}
+	cookie := recLogin.Result().Cookies()[0]
+
+	// Browser action without CSRF -> 403.
+	badForm := url.Values{"verb": {"restart"}, "csrf_token": {"wrong"}}
+	reqBadCSRF := httptest.NewRequest(http.MethodPost, "/services/fixture-web/action", strings.NewReader(badForm.Encode()))
+	reqBadCSRF.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqBadCSRF.AddCookie(cookie)
+	recBadCSRF := httptest.NewRecorder()
+	h.ServeHTTP(recBadCSRF, reqBadCSRF)
+	if recBadCSRF.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on bad CSRF token, got %d", recBadCSRF.Code)
 	}
 }

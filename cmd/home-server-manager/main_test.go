@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bises/home-server-manager/internal/auth"
 	"github.com/bises/home-server-manager/internal/broker"
 	"github.com/bises/home-server-manager/internal/config"
 	"github.com/bises/home-server-manager/internal/dockerapi"
@@ -153,5 +154,96 @@ func TestEndToEndUnixSocketBrokerAndWeb(t *testing.T) {
 	}
 	if stale.Freshness != "stale" || stale.DockerAvailable || stale.Summary.Running != 2 {
 		t.Fatalf("expected stale snapshot with preserved counts, got %+v", stale)
+	}
+}
+
+func TestPhase2HomeAssistantRestartOverUnixSocket(t *testing.T) {
+	dockerSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/version":
+			_ = json.NewEncoder(w).Encode(dockerapi.VersionInfo{Version: "29.8.0", APIVersion: "1.47"})
+		case "/v1.47/containers/json":
+			_ = json.NewEncoder(w).Encode([]dockerapi.ContainerSummary{
+				{
+					ID: "id-web", Names: []string{"/hsm-fixture-web"}, Image: "nginx:alpine",
+					State: "running", Status: "Up 2m (healthy)",
+					Labels: map[string]string{"com.docker.compose.project": "hsm-fixture", "com.docker.compose.service": "fixture-web"},
+				},
+			})
+		case "/v1.47/containers/id-web/restart":
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer dockerSrv.Close()
+
+	cfg, err := config.Load(filepath.Join("..", "..", "fixtures", "manager-phase2.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dc, err := dockerapi.NewClient(dockerSrv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sockPath := filepath.Join(t.TempDir(), "broker.sock")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	b := broker.New(cfg, dc)
+	go func() {
+		_ = broker.ListenAndServeUnix(ctx, sockPath, b.Handler())
+	}()
+
+	bc := snapshot.NewUnixBrokerClient(sockPath)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := bc.FetchSnapshot(ctx); err == nil {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	authMgr := auth.NewManager(auth.Config{
+		Tokens: []auth.TokenConfig{
+			{ID: "ha-act", Actor: "home-assistant", TokenSHA256: auth.HashSecret("ha-secret"), Read: true, Actions: map[string][]string{"fixture-web": {"restart"}}},
+		},
+	})
+	snapSvc := snapshot.NewService(cfg, bc, hostmetrics.NewReader())
+	srv, err := web.NewServer(snapSvc, web.Options{DisableUI: true, Auth: authMgr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := srv.Handler()
+
+	// Home Assistant triggers restart with UI disabled.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/services/fixture-web/actions/restart", nil)
+	req.Header.Set("Authorization", "Bearer ha-secret")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("expected 202 Accepted, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var op broker.Operation
+	if err := json.Unmarshal(rec.Body.Bytes(), &op); err != nil {
+		t.Fatal(err)
+	}
+
+	// Poll /api/v1/operations/{id} until succeeded.
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		reqOp := httptest.NewRequest(http.MethodGet, "/api/v1/operations/"+op.ID, nil)
+		reqOp.Header.Set("Authorization", "Bearer ha-secret")
+		recOp := httptest.NewRecorder()
+		h.ServeHTTP(recOp, reqOp)
+		_ = json.Unmarshal(recOp.Body.Bytes(), &op)
+		if op.State == "succeeded" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if op.State != "succeeded" || op.Actor != "home-assistant" {
+		t.Fatalf("expected succeeded operation for home-assistant, got %+v", op)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bises/home-server-manager/internal/auth"
 	"github.com/bises/home-server-manager/internal/broker"
 	"github.com/bises/home-server-manager/internal/config"
 	"github.com/bises/home-server-manager/internal/dockerapi"
@@ -74,9 +75,11 @@ func runBroker(ctx context.Context, args []string) error {
 func runWeb(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("web", flag.ExitOnError)
 	cfgPath := fs.String("config", envOr("HSM_CONFIG", "fixtures/manager.json"), "path to host manager config JSON")
+	authPath := fs.String("auth-config", envOr("HSM_AUTH_CONFIG", ""), "optional path to auth users/tokens JSON")
 	sockPath := fs.String("socket", envOr("HSM_BROKER_SOCKET", defaultSocketPath()), "broker Unix domain socket path")
 	listenAddr := fs.String("listen", envOr("HSM_LISTEN_ADDR", "127.0.0.1:8090"), "HTTP listen address (loopback recommended)")
 	disableUI := fs.Bool("disable-ui", envBool("HSM_DISABLE_UI"), "disable built-in HTML UI and serve /api/v1/* only")
+	secureCookies := fs.Bool("secure-cookies", envBool("HSM_SECURE_COOKIES"), "set Secure attribute on session cookies (enable behind HTTPS)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -86,8 +89,21 @@ func runWeb(ctx context.Context, args []string) error {
 		return err
 	}
 
+	var authMgr *auth.Manager
+	if *authPath != "" {
+		authCfg, err := auth.LoadConfig(*authPath)
+		if err != nil {
+			return err
+		}
+		authMgr = auth.NewManager(authCfg)
+	}
+
 	snapSvc := snapshot.NewService(cfg, snapshot.NewUnixBrokerClient(*sockPath), hostmetrics.NewReader())
-	webSrv, err := web.NewServer(snapSvc, web.Options{DisableUI: *disableUI})
+	webSrv, err := web.NewServer(snapSvc, web.Options{
+		DisableUI:     *disableUI,
+		Auth:          authMgr,
+		SecureCookies: *secureCookies,
+	})
 	if err != nil {
 		return err
 	}

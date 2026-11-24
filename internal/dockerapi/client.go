@@ -194,6 +194,51 @@ func (c *Client) InspectContainer(ctx context.Context, id string) (ContainerDeta
 	return out, nil
 }
 
+// StartContainer starts an existing container via the Engine API.
+func (c *Client) StartContainer(ctx context.Context, id string) error {
+	return c.containerPost(ctx, id, "start", "")
+}
+
+// StopContainer stops a running container with a graceful timeout in seconds.
+func (c *Client) StopContainer(ctx context.Context, id string, timeoutSec int) error {
+	return c.containerPost(ctx, id, "stop", fmt.Sprintf("t=%d", timeoutSec))
+}
+
+// RestartContainer restarts a container with a graceful timeout in seconds.
+func (c *Client) RestartContainer(ctx context.Context, id string, timeoutSec int) error {
+	return c.containerPost(ctx, id, "restart", fmt.Sprintf("t=%d", timeoutSec))
+}
+
+func (c *Client) containerPost(ctx context.Context, id, verb, query string) error {
+	if strings.TrimSpace(id) == "" {
+		return errors.New("container id is required")
+	}
+	ver, err := c.NegotiateVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("negotiate docker api version: %w", err)
+	}
+	path := fmt.Sprintf("/v%s/containers/%s/%s", ver, url.PathEscape(id), verb)
+	if query != "" {
+		path += "?" + query
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Docker returns 204 No Content on success, or 304 Not Modified if already started/stopped.
+	if (resp.StatusCode >= 200 && resp.StatusCode < 300) || resp.StatusCode == http.StatusNotModified {
+		return nil
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	return fmt.Errorf("docker engine HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+}
+
 func (c *Client) getJSON(ctx context.Context, path string, dst any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
