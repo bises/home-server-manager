@@ -27,6 +27,8 @@ type Options struct {
 	DisableUI     bool
 	Auth          *auth.Manager
 	SecureCookies bool
+	Discovery     DiscoveryClient
+	LocalSetup    bool
 }
 
 // Server serves the versioned API and optional built-in operations dashboard.
@@ -35,6 +37,8 @@ type Server struct {
 	disableUI     bool
 	auth          *auth.Manager
 	secureCookies bool
+	discovery     DiscoveryClient
+	localSetup    bool
 	pages         map[string]*template.Template
 }
 
@@ -45,6 +49,8 @@ func NewServer(snap *snapshot.Service, opts Options) (*Server, error) {
 		disableUI:     opts.DisableUI,
 		auth:          opts.Auth,
 		secureCookies: opts.SecureCookies,
+		discovery:     opts.Discovery,
+		localSetup:    opts.LocalSetup && !opts.Auth.Enabled(),
 	}
 	if !opts.DisableUI {
 		pages, err := parseTemplates()
@@ -77,9 +83,23 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /services/{id}", s.handleServiceDetail)
 		mux.HandleFunc("POST /services/{id}/action", s.handleBrowserAction)
 		mux.HandleFunc("GET /activity", s.handleActivity)
+		if s.discovery != nil && (s.localSetup || s.authEnabled()) {
+			mux.HandleFunc("GET /setup", s.handleSetup)
+			mux.HandleFunc("POST /setup", s.handleSetupPost)
+		}
 	}
 
-	return http.NewCrossOriginProtection().Handler(mux)
+	handler := http.NewCrossOriginProtection().Handler(mux)
+	if !s.localSetup {
+		return handler
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackHost(r.Host) {
+			http.Error(w, "Open this read-only dashboard on localhost or through an SSH tunnel", http.StatusForbidden)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) authEnabled() bool {
@@ -255,6 +275,7 @@ type navUser struct {
 	Username  string
 	Role      string
 	CSRFToken string
+	CanSetup  bool
 }
 
 type stackGroup struct {
@@ -313,6 +334,7 @@ func (s *Server) toNavUser(sess auth.Session) navUser {
 		Username:  sess.Username,
 		Role:      sess.Role,
 		CSRFToken: sess.CSRFToken,
+		CanSetup:  s.discovery != nil && (s.localSetup || (s.authEnabled() && sess.Role == "operator")),
 	}
 }
 
@@ -669,7 +691,7 @@ func parseTemplates() (map[string]*template.Template, error) {
 		},
 	}
 
-	pageNames := []string{"login.html", "overview.html", "services.html", "service_detail.html", "activity.html"}
+	pageNames := []string{"login.html", "overview.html", "services.html", "service_detail.html", "activity.html", "setup.html"}
 	out := make(map[string]*template.Template, len(pageNames))
 	for _, p := range pageNames {
 		t, err := template.New("layout").Funcs(funcs).ParseFS(assetsFS, "templates/layout.html", "templates/"+p)

@@ -7,7 +7,7 @@
       <span class="freshness freshness-{{.Snap.Freshness}}">
         {{if eq .Snap.Freshness "fresh"}}Fresh{{else if eq .Snap.Freshness "stale"}}Stale ({{.Snap.StaleAgeSeconds}}s old){{else}}Docker unavailable{{end}}
       </span>
-      <span class="pill">Read-only pilot</span>
+      {{if .Snap.ReadOnly}}<span class="pill">Read only</span>{{end}}
     </p>
   </div>
   <div class="actions">
@@ -25,6 +25,10 @@
   {{end}}
   {{if .Snap.DockerError}}<span class="muted">({{.Snap.DockerError}})</span>{{end}}
 </div>
+{{end}}
+
+{{if and .User.CanSetup (eq .Snap.Summary.Total 0)}}
+<div class="banner" role="status">Choose the Docker containers you want to monitor. <a href="/setup">Find containers</a></div>
 {{end}}
 
 <section aria-labelledby="summary-heading" class="summary-grid">

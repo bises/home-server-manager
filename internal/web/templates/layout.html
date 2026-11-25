@@ -16,6 +16,7 @@
           <li><a href="/" {{if eq .ActiveNav "overview"}}aria-current="page"{{end}}>Overview</a></li>
           <li><a href="/services" {{if eq .ActiveNav "services"}}aria-current="page"{{end}}>Services</a></li>
           <li><a href="/activity" {{if eq .ActiveNav "activity"}}aria-current="page"{{end}}>Activity</a></li>
+          {{if .User.CanSetup}}<li><a href="/setup" {{if eq .ActiveNav "setup"}}aria-current="page"{{end}}>Setup</a></li>{{end}}
         </ul>
       </nav>
       {{if and .User.Enabled .User.Username}}

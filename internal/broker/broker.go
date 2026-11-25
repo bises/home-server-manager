@@ -120,6 +120,7 @@ type Broker struct {
 	docker         DockerEngine
 	actionTimeout  time.Duration
 	verifyInterval time.Duration
+	watch          *watchlist
 
 	mu         sync.Mutex
 	inFlight   map[string]string
@@ -148,6 +149,10 @@ func (b *Broker) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/services/{id}/actions/{verb}", b.handleAction)
 	mux.HandleFunc("GET /v1/operations/{id}", b.handleOperation)
 	mux.HandleFunc("GET /v1/activity", b.handleActivity)
+	if b.watch != nil {
+		mux.HandleFunc("GET /v1/discovery", b.handleDiscovery)
+		mux.HandleFunc("POST /v1/discovery", b.handleWatchChange)
+	}
 	return mux
 }
 
@@ -211,6 +216,7 @@ func (b *Broker) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 		services = append(services, normalizeServiceMatches(svcCfg, matches, b.cfg.ReadOnly))
 	}
 
+	services = append(services, b.watchedStatuses(containers)...)
 	writeJSON(w, http.StatusOK, SnapshotResponse{
 		SampledAt: time.Now().UTC().Format(time.RFC3339),
 		ReadOnly:  b.cfg.ReadOnly,
@@ -220,9 +226,21 @@ func (b *Broker) handleSnapshot(w http.ResponseWriter, r *http.Request) {
 
 func (b *Broker) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	svcCfg, ok := b.cfg.FindService(id)
-	if !ok {
-		writeJSONError(w, http.StatusNotFound, "unknown_service", "Service is not in the host allowlist")
+	svcCfg, configured := b.cfg.FindService(id)
+	var watchedName string
+	var watched bool
+	if !configured && b.watch != nil {
+		watchedName = strings.TrimPrefix(id, "container-")
+		if watchedName != id {
+			b.watch.mu.Lock()
+			stack, exists := b.watch.entries[watchedName]
+			b.watch.mu.Unlock()
+			watched = exists
+			svcCfg = watchedService(watchedName, stack)
+		}
+	}
+	if !configured && !watched {
+		writeJSONError(w, http.StatusNotFound, "unknown_service", "Service is not monitored")
 		return
 	}
 
@@ -232,8 +250,12 @@ func (b *Broker) handleServiceDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	byTarget := indexByComposeTarget(containers)
-	matches := byTarget[svcCfg.Stack+"/"+svcCfg.Service]
+	var matches []dockerapi.ContainerSummary
+	if configured {
+		matches = indexByComposeTarget(containers)[svcCfg.Stack+"/"+svcCfg.Service]
+	} else if c, present := containerByName(containers)[watchedName]; present && !b.managedIDs(containers)[c.ID] {
+		matches = []dockerapi.ContainerSummary{c}
+	}
 	base := normalizeServiceMatches(svcCfg, matches, b.cfg.ReadOnly)
 	detail := ServiceDetail{ServiceStatus: base}
 
@@ -321,12 +343,6 @@ func (b *Broker) handleAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *Broker) executeOperation(opID string, svcCfg config.ServiceConfig, verb, actor string) {
-	defer func() {
-		b.mu.Lock()
-		delete(b.inFlight, svcCfg.ID)
-		b.mu.Unlock()
-	}()
-
 	b.updateOperation(opID, "running", "Executing "+verb+" against Docker", "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), b.actionTimeout)
@@ -467,6 +483,7 @@ func (b *Broker) finishOperation(opID, serviceID, verb, actor, outcome, message,
 		op.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 	b.appendAuditLocked(opID, actor, serviceID, verb, outcome, message)
+	delete(b.inFlight, serviceID)
 	b.mu.Unlock()
 
 	log.Printf("[AUDIT] op=%s actor=%q service=%q verb=%q outcome=%q verified=%q msg=%q",

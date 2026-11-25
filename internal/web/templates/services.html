@@ -10,6 +10,7 @@
     </p>
   </div>
   <div class="actions">
+    {{if .User.CanSetup}}<a class="btn" href="/setup">Add containers</a>{{end}}
     <a class="btn" href="/services?refresh=1&amp;q={{.Query}}&amp;status={{.Status}}">Refresh</a>
   </div>
 </section>

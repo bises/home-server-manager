@@ -4,6 +4,9 @@ services:
     group_add:
       - "${HSM_DOCKER_GID:?Set HSM_DOCKER_GID to the Docker socket group ID}"
     network_mode: none
+    environment:
+      HSM_SETUP: "${HSM_SETUP:-true}"
+      HSM_WATCHLIST: /var/lib/hsm-watch/watchlist.json
     command:
       - home-server-manager
       - broker
@@ -14,13 +17,16 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - hsm-socket:/run/hsm
-      - "${HSM_MANAGER_CONFIG:-./fixtures/manager.json}:/etc/home-server-manager/manager.json:ro"
+      - hsm-watch:/var/lib/hsm-watch
+      - "${HSM_MANAGER_CONFIG:-./fixtures/manager-default.json}:/etc/home-server-manager/manager.json:ro"
     restart: unless-stopped
 
   web:
     build: .
     depends_on:
       - broker
+    environment:
+      HSM_SETUP: "${HSM_SETUP:-true}"
     command:
       - home-server-manager
       - web
@@ -31,11 +37,12 @@ services:
       - --listen
       - 0.0.0.0:8090
     ports:
-      - "127.0.0.1:8090:8090"
+      - "127.0.0.1:${HSM_PORT:-8090}:8090"
     volumes:
       - hsm-socket:/run/hsm:ro
-      - "${HSM_MANAGER_CONFIG:-./fixtures/manager.json}:/etc/home-server-manager/manager.json:ro"
+      - "${HSM_MANAGER_CONFIG:-./fixtures/manager-default.json}:/etc/home-server-manager/manager.json:ro"
     restart: unless-stopped
 
 volumes:
   hsm-socket:
+  hsm-watch:

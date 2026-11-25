@@ -84,7 +84,7 @@ func (c *Config) Validate() error {
 		mountIDs[m.ID] = true
 	}
 
-	if len(c.Services) == 0 {
+	if len(c.Services) == 0 && !c.ReadOnly {
 		return errors.New("config must define at least one allowlisted service")
 	}
 

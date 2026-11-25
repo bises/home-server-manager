@@ -34,7 +34,7 @@ func TestCollectFromProcAndMounts(t *testing.T) {
 
 	m := r.Collect("hsm-fixture-host", []config.MountConfig{
 		{ID: "root", Label: "Root storage", Path: "/"},
-		{ID: "backup", Label: "Backup mount", Path: "/mnt/immich-backup"},
+		{ID: "backup", Label: "Backup mount", Path: "/mnt/example-backup"},
 	})
 
 	if m.Hostname != "hsm-fixture-host" || m.UptimeSeconds != 12345 {

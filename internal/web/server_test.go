@@ -62,7 +62,7 @@ func newTestServer(t *testing.T, disableUI bool) (*Server, *fakeBroker) {
 		CacheTTLSeconds: 10,
 		Mounts: []config.MountConfig{
 			{ID: "root", Label: "Root storage", Path: "/"},
-			{ID: "backup", Label: "Backup mount", Path: "/mnt/immich-backup"},
+			{ID: "backup", Label: "Backup mount", Path: "/mnt/example-backup"},
 		},
 		Services: []config.ServiceConfig{
 			{ID: "fixture-web", DisplayName: "Fixture Web", Stack: "hsm-fixture", Service: "fixture-web"},

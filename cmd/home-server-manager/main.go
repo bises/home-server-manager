@@ -53,6 +53,8 @@ func runBroker(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("broker", flag.ExitOnError)
 	cfgPath := fs.String("config", envOr("HSM_CONFIG", "fixtures/manager.json"), "path to host manager config JSON")
 	sockPath := fs.String("socket", envOr("HSM_BROKER_SOCKET", defaultSocketPath()), "Unix domain socket path to listen on")
+	setup := fs.Bool("setup", envBool("HSM_SETUP"), "enable the container watchlist")
+	watchPath := fs.String("watchlist", envOr("HSM_WATCHLIST", ""), "path to the persisted dashboard watchlist")
 	dockerEndpoint := fs.String("docker", envOr("DOCKER_HOST", "unix:///var/run/docker.sock"), "Docker Engine API endpoint")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -68,6 +70,14 @@ func runBroker(ctx context.Context, args []string) error {
 	}
 
 	b := broker.New(cfg, dockerClient)
+	if *setup {
+		if *watchPath == "" {
+			return fmt.Errorf("container setup requires --watchlist")
+		}
+		if err := b.LoadWatchlist(*watchPath); err != nil {
+			return err
+		}
+	}
 	log.Printf("Broker listening on unix://%s (read_only=%v, services=%d)", *sockPath, cfg.ReadOnly, len(cfg.Services))
 	return broker.ListenAndServeUnix(ctx, *sockPath, b.Handler())
 }
@@ -79,6 +89,7 @@ func runWeb(ctx context.Context, args []string) error {
 	sockPath := fs.String("socket", envOr("HSM_BROKER_SOCKET", defaultSocketPath()), "broker Unix domain socket path")
 	listenAddr := fs.String("listen", envOr("HSM_LISTEN_ADDR", "127.0.0.1:8090"), "HTTP listen address (loopback recommended)")
 	disableUI := fs.Bool("disable-ui", envBool("HSM_DISABLE_UI"), "disable built-in HTML UI and serve /api/v1/* only")
+	setup := fs.Bool("setup", envBool("HSM_SETUP"), "enable container setup")
 	secureCookies := fs.Bool("secure-cookies", envBool("HSM_SECURE_COOKIES"), "set Secure attribute on session cookies (enable behind HTTPS)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -101,12 +112,20 @@ func runWeb(ctx context.Context, args []string) error {
 		return fmt.Errorf("writable configuration (read_only=false) requires --auth-config with at least one user or token")
 	}
 
-	snapSvc := snapshot.NewService(cfg, snapshot.NewUnixBrokerClient(*sockPath), hostmetrics.NewReader())
-	webSrv, err := web.NewServer(snapSvc, web.Options{
-		DisableUI:     *disableUI,
-		Auth:          authMgr,
-		SecureCookies: *secureCookies,
-	})
+	if *setup && *authPath != "" && !authMgr.Enabled() {
+		return fmt.Errorf("container setup requires at least one user or token in the supplied auth config")
+	}
+
+	brokerClient := snapshot.NewUnixBrokerClient(*sockPath)
+	snapSvc := snapshot.NewService(cfg, brokerClient, hostmetrics.NewReader())
+	opts := web.Options{
+		DisableUI: *disableUI, Auth: authMgr, SecureCookies: *secureCookies,
+		LocalSetup: *setup && cfg.ReadOnly && !authMgr.Enabled(),
+	}
+	if *setup && !*disableUI {
+		opts.Discovery = brokerClient
+	}
+	webSrv, err := web.NewServer(snapSvc, opts)
 	if err != nil {
 		return err
 	}

@@ -11,7 +11,7 @@
     {
       "id": "backup",
       "label": "Backup mount",
-      "path": "/mnt/immich-backup"
+      "path": "/mnt/example-backup"
     }
   ],
   "services": [

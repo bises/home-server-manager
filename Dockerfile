@@ -8,12 +8,12 @@ RUN go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/h
 
 FROM alpine:3.23
 RUN adduser -D -H -s /sbin/nologin hsm \
-    && mkdir -p /run/hsm \
-    && chown hsm:hsm /run/hsm \
-    && chmod 0750 /run/hsm
+    && mkdir -p /run/hsm /var/lib/hsm-watch \
+    && chown hsm:hsm /run/hsm /var/lib/hsm-watch \
+    && chmod 0750 /run/hsm /var/lib/hsm-watch
 WORKDIR /app
 COPY --from=backend-builder /out/home-server-manager /usr/local/bin/home-server-manager
-COPY fixtures/manager.json /etc/home-server-manager/manager.json
+COPY fixtures/manager-default.json /etc/home-server-manager/manager.json
 
 USER hsm
 ENV HSM_CONFIG=/etc/home-server-manager/manager.json

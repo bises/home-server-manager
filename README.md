@@ -2,21 +2,33 @@
 
 Monitor a Docker host and run approved start, stop, and restart actions. A Go broker owns the Docker socket. The dashboard and versioned API use a separate process that connects to the broker over a Unix socket.
 
-## Read-only preview
+## First run
 
-Run these commands on the Linux Docker host. The Compose stack starts with the disposable fixture configuration and publishes the dashboard on host loopback.
+Start this Compose project on the Linux Docker host. The default configuration starts with an empty read-only dashboard.
 
 ```sh
 export HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
-docker compose -f fixtures/compose.yaml up -d
-docker compose -f fixtures/compose.yaml stop fixture-stopped
 docker compose up -d --build
-curl --fail http://127.0.0.1:8090/api/v1/snapshot
 ```
 
-Open `http://127.0.0.1:8090`. To open it from another machine, use an SSH tunnel such as `ssh -L 8090:127.0.0.1:8090 operator@example.test`. The numeric group ID grants the broker access to the host Docker socket. The web service receives only the broker socket, on a read-only mount.
+Open http://127.0.0.1:8090 to go directly to the read-only dashboard. Keep the host port bound to loopback for this setup mode. From another machine, use an SSH tunnel such as `ssh -L 8090:127.0.0.1:8090 operator@example.test`. The Docker group ID grants socket access to the broker. The web service receives the broker socket on a read-only mount.
 
-If upgrading a disposable preview with a leftover socket volume owned by root, use `docker compose down --volumes` from the preview project, then start it again. The manager project volume holds the broker socket. To tear down the example containers separately, use `docker compose -f fixtures/compose.yaml down --volumes`.
+Open **Setup**, choose **Add selected** or **Add all available**, and view the dashboard. The scan includes existing running and stopped containers from Compose and standalone containers. Open Setup again any time to scan for new containers or remove a watch. Watches follow the exact Docker container name and inherit no container control permissions. The watch list persists in the broker volume across ordinary restarts and updates.
+
+Set a private `HSM_AUTH_CONFIG` with an operator account to require sign-in. Set `HSM_PORT` to choose a different host loopback port.
+
+## Disposable fixture
+
+For the original read-only demo with sample entries and anonymous loopback viewing, run these commands in a separate Compose project with a free host port.
+
+```sh
+export HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+export HSM_MANAGER_CONFIG=./fixtures/manager.json
+export HSM_SETUP=false
+docker compose -f fixtures/compose.yaml up -d
+docker compose -f fixtures/compose.yaml stop fixture-stopped
+docker compose -p hsm-demo up -d --build
+```
 
 ## Authenticated controls
 
