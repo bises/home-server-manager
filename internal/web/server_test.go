@@ -257,3 +257,31 @@ func TestPhase2AuthRoleScopeAndCSRF(t *testing.T) {
 		t.Fatalf("expected 403 on bad CSRF token, got %d", recBadCSRF.Code)
 	}
 }
+
+func TestLoginLimitIsSharedAcrossConnections(t *testing.T) {
+	srv, _ := newTestServer(t, false)
+	srv.auth = auth.NewManager(auth.Config{
+		Users: []auth.UserConfig{{Username: "viewer", Role: "viewer", PasswordHash: auth.HashPassword("test-password")}},
+	})
+	handler := srv.Handler()
+
+	for i, address := range []string{
+		"[2001:db8::1]:1001", "[2001:db8::1]:1002", "[2001:db8::1]:1003",
+		"[2001:db8::1]:1004", "[2001:db8::1]:1005", "[2001:db8::1]:1006",
+		"[2001:db8::2]:1001",
+	} {
+		want := http.StatusUnauthorized
+		if i == 5 {
+			want = http.StatusTooManyRequests
+		}
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("username=viewer&password=incorrect"))
+		req.RemoteAddr = address
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("X-Forwarded-For", address)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		if response.Code != want {
+			t.Errorf("attempt %d returned %d, want %d", i+1, response.Code, want)
+		}
+	}
+}

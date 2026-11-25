@@ -18,11 +18,11 @@ import (
 )
 
 const (
-	SessionCookieName    = "hsm_session"
-	defaultPBKDF2Iter    = 100_000
-	loginFailureLimit    = 5
-	loginFailureWindow   = time.Minute
-	pbkdf2FormatPrefix   = "pbkdf2-sha256"
+	SessionCookieName  = "hsm_session"
+	defaultPBKDF2Iter  = 100_000
+	loginFailureLimit  = 5
+	loginFailureWindow = time.Minute
+	pbkdf2FormatPrefix = "pbkdf2-sha256"
 )
 
 // UserConfig defines a browser user account.
@@ -88,9 +88,10 @@ type Manager struct {
 	tokens     []TokenConfig
 	now        func() time.Time
 
-	mu           sync.Mutex
-	sessions     map[string]Session
-	loginFails   map[string][]time.Time
+	mu             sync.Mutex
+	sessions       map[string]Session
+	loginAttempts  map[string][]time.Time
+	lastLoginSweep time.Time
 }
 
 // LoadConfig reads an auth JSON file.
@@ -116,14 +117,14 @@ func NewManager(cfg Config) *Manager {
 	_, _ = rand.Read(key)
 
 	return &Manager{
-		enabled:    len(cfg.Users) > 0 || len(cfg.Tokens) > 0,
-		sessionTTL: ttl,
-		hmacKey:    key,
-		users:      cfg.Users,
-		tokens:     cfg.Tokens,
-		now:        func() time.Time { return time.Now().UTC() },
-		sessions:   make(map[string]Session),
-		loginFails: make(map[string][]time.Time),
+		enabled:       len(cfg.Users) > 0 || len(cfg.Tokens) > 0,
+		sessionTTL:    ttl,
+		hmacKey:       key,
+		users:         cfg.Users,
+		tokens:        cfg.Tokens,
+		now:           func() time.Time { return time.Now().UTC() },
+		sessions:      make(map[string]Session),
+		loginAttempts: make(map[string][]time.Time),
 	}
 }
 
@@ -174,37 +175,35 @@ func HashSecret(secret string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// AllowLogin returns false if key has exceeded loginFailureLimit within loginFailureWindow.
-func (m *Manager) AllowLogin(key string) bool {
+// BeginLogin reserves an attempt before password verification so concurrent requests share the limit.
+func (m *Manager) BeginLogin(key string) bool {
 	now := m.now()
 	cutoff := now.Add(-loginFailureWindow)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	kept := m.pruneFailuresLocked(key, cutoff)
-	return len(kept) < loginFailureLimit
+	if now.Sub(m.lastLoginSweep) >= loginFailureWindow {
+		for existingKey := range m.loginAttempts {
+			m.pruneAttemptsLocked(existingKey, cutoff)
+		}
+		m.lastLoginSweep = now
+	}
+	kept := m.pruneAttemptsLocked(key, cutoff)
+	if len(kept) >= loginFailureLimit {
+		return false
+	}
+	m.loginAttempts[key] = append(kept, now)
+	return true
 }
 
-// RecordLoginFailure records a failed login attempt for rate limiting.
-func (m *Manager) RecordLoginFailure(key string) {
-	now := m.now()
-	cutoff := now.Add(-loginFailureWindow)
-
+func (m *Manager) ResetLoginAttempts(key string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	kept := m.pruneFailuresLocked(key, cutoff)
-	m.loginFails[key] = append(kept, now)
-}
-
-// ResetLoginFailures clears rate-limit history after a successful login.
-func (m *Manager) ResetLoginFailures(key string) {
-	m.mu.Lock()
-	delete(m.loginFails, key)
+	delete(m.loginAttempts, key)
 	m.mu.Unlock()
 }
 
-func (m *Manager) pruneFailuresLocked(key string, cutoff time.Time) []time.Time {
-	prev := m.loginFails[key]
+func (m *Manager) pruneAttemptsLocked(key string, cutoff time.Time) []time.Time {
+	prev := m.loginAttempts[key]
 	kept := prev[:0]
 	for _, ts := range prev {
 		if ts.After(cutoff) {
@@ -212,10 +211,10 @@ func (m *Manager) pruneFailuresLocked(key string, cutoff time.Time) []time.Time 
 		}
 	}
 	if len(kept) == 0 {
-		delete(m.loginFails, key)
+		delete(m.loginAttempts, key)
 		return nil
 	}
-	m.loginFails[key] = kept
+	m.loginAttempts[key] = kept
 	return kept
 }
 

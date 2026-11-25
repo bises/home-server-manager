@@ -42,7 +42,7 @@ func (s *stubBroker) SubmitAction(context.Context, string, string, string) (int,
 
 func TestSnapshotFreshStaleAndUnavailable(t *testing.T) {
 	cfg := config.Config{
-		HostLabel:       "jbhouse-test",
+		HostLabel:       "hsm-fixture-host",
 		ReadOnly:        true,
 		CacheTTLSeconds: 10,
 		Services: []config.ServiceConfig{

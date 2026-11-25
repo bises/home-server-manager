@@ -32,12 +32,12 @@ func TestCollectFromProcAndMounts(t *testing.T) {
 		},
 	}
 
-	m := r.Collect("jbhouse", []config.MountConfig{
+	m := r.Collect("hsm-fixture-host", []config.MountConfig{
 		{ID: "root", Label: "Root storage", Path: "/"},
 		{ID: "backup", Label: "Backup mount", Path: "/mnt/immich-backup"},
 	})
 
-	if m.Hostname != "jbhouse" || m.UptimeSeconds != 12345 {
+	if m.Hostname != "hsm-fixture-host" || m.UptimeSeconds != 12345 {
 		t.Fatalf("unexpected host/uptime: %+v", m)
 	}
 	if m.Memory.TotalBytes != 8000000*1024 || m.Memory.UsedBytes != 4000000*1024 {

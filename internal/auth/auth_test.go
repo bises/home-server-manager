@@ -31,16 +31,15 @@ func TestBrowserSessionCSRFAndScopedTokens(t *testing.T) {
 
 	// Rate limiting blocks after 5 failed attempts.
 	for i := 0; i < loginFailureLimit; i++ {
-		if !m.AllowLogin("127.0.0.1") {
+		if !m.BeginLogin("127.0.0.1") {
 			t.Fatalf("unexpected rate limit at attempt %d", i)
 		}
-		m.RecordLoginFailure("127.0.0.1")
 	}
-	if m.AllowLogin("127.0.0.1") {
+	if m.BeginLogin("127.0.0.1") {
 		t.Fatal("expected rate limit after 5 failed attempts")
 	}
-	m.ResetLoginFailures("127.0.0.1")
-	if !m.AllowLogin("127.0.0.1") {
+	m.ResetLoginAttempts("127.0.0.1")
+	if !m.BeginLogin("127.0.0.1") {
 		t.Fatal("expected rate limit reset after success")
 	}
 

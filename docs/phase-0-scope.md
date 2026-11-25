@@ -1,6 +1,7 @@
 # Phase 0: Scope, Inventory, and Disposable Fixture
 
-**Date:** November 24, 2026  
+**Date:** November 24, 2026
+
 **Branch:** `codex/go-backend`
 
 ## 1. Current Workflow Inventory & Baseline
@@ -14,7 +15,7 @@ From the existing Flask + React app (`app.py` at `15dae57`) and `README.md`:
   - Unauthenticated management routes and direct Docker socket access from the web app (replaced by local Unix-socket broker + separate web process).
   - Broken `pull` route (`docker-compose` missing in image) — deferred to Phase 4 guided updates.
   - Obsolete OpenClaw panel — rejected.
-  - Old deployment on `jbhouse` remains stopped; managed services (`immich`, `home-assistant`, `goal-tracker`, etc.) continue running untouched.
+  - Use the disposable fixture to verify the rewrite before planning any rollout to managed services.
 
 ## 2. Pilot Services & Protected Actions
 

@@ -1,6 +1,13 @@
 .git
-.env
+**/.env
+**/.env.*
+**/auth*.json
+**/*.crt
+**/*.key
+**/*.pem
 **/node_modules
-frontend/build
+**/build
+**/dist
+**/dev-dist
 *.exe
 home-server-manager

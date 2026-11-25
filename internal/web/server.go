@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -332,19 +333,22 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.renderStatus(w, http.StatusBadRequest, "login.html", loginData{Title: "Sign in", Error: "Invalid form submission"})
 		return
 	}
-	rateKey := r.RemoteAddr
-	if !s.auth.AllowLogin(rateKey) {
+	// RemoteAddr is the immediate peer. Forwarded headers are not trusted here.
+	rateKey, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		rateKey = r.RemoteAddr
+	}
+	if !s.auth.BeginLogin(rateKey) {
 		w.Header().Set("Retry-After", "60")
 		s.renderStatus(w, http.StatusTooManyRequests, "login.html", loginData{Title: "Sign in", Error: "Too many failed login attempts. Try again in a minute."})
 		return
 	}
 	_, cookieVal, ok := s.auth.AuthenticateUser(r.FormValue("username"), r.FormValue("password"))
 	if !ok {
-		s.auth.RecordLoginFailure(rateKey)
 		s.renderStatus(w, http.StatusUnauthorized, "login.html", loginData{Title: "Sign in", Error: "Invalid username or password"})
 		return
 	}
-	s.auth.ResetLoginFailures(rateKey)
+	s.auth.ResetLoginAttempts(rateKey)
 	http.SetCookie(w, &http.Cookie{
 		Name:     auth.SessionCookieName,
 		Value:    cookieVal,

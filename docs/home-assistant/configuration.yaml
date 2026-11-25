@@ -64,6 +64,7 @@ rest_command:
   hsm_poll_operation:
     url: "{{ base_url }}/{{ operation_id }}"
     method: GET
+    timeout: 3
     headers:
       Authorization: !secret hsm_action_token
 
@@ -87,14 +88,17 @@ script:
           - stop: "Restart request rejected"
       - variables:
           op_id: "{{ restart_resp.content.id }}"
+          operation_finished: false
           final_state: "unknown"
           final_message: "Timed out waiting for operation confirmation; check current service state."
       - repeat:
-          count: 10
           sequence:
             - delay:
                 seconds: 2
+            - variables:
+                poll_resp: {}
             - action: rest_command.hsm_poll_operation
+              continue_on_error: true
               data:
                 base_url: "{{ op_base_url }}"
                 operation_id: "{{ op_id }}"
@@ -102,12 +106,14 @@ script:
             - if:
                 - condition: template
                   value_template: >-
-                    {{ poll_resp.status == 200 and poll_resp.content.state in ['succeeded', 'failed', 'unknown'] }}
+                    {{ poll_resp.status | default(0) == 200 and poll_resp.content is mapping
+                       and poll_resp.content.state | default('') in ['succeeded', 'failed', 'unknown'] }}
               then:
                 - variables:
+                    operation_finished: true
                     final_state: "{{ poll_resp.content.state }}"
                     final_message: "{{ poll_resp.content.message }}"
-                - stop: "Operation reached terminal state"
+          until: "{{ operation_finished or repeat.index >= 15 }}"
       - action: persistent_notification.create
         data:
           title: "Fixture Web Restart: {{ final_state }}"

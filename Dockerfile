@@ -7,7 +7,10 @@ COPY fixtures ./fixtures
 RUN go test ./... && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/home-server-manager ./cmd/home-server-manager
 
 FROM alpine:3.23
-RUN adduser -D -H -s /sbin/nologin hsm
+RUN adduser -D -H -s /sbin/nologin hsm \
+    && mkdir -p /run/hsm \
+    && chown hsm:hsm /run/hsm \
+    && chmod 0750 /run/hsm
 WORKDIR /app
 COPY --from=backend-builder /out/home-server-manager /usr/local/bin/home-server-manager
 COPY fixtures/manager.json /etc/home-server-manager/manager.json

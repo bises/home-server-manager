@@ -1,6 +1,6 @@
 # Disposable Docker Test Fixture
 
-This fixture provides running (healthy), unhealthy, stopped, and protected services for testing Home Server Manager without touching `jbhouse`.
+This fixture provides running (healthy), unhealthy, stopped, and protected services for testing Home Server Manager in a disposable Compose project.
 
 ## Start the fixture
 

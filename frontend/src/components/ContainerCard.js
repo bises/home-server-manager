@@ -1,16 +1,13 @@
 import { useState } from "react";
 import "./ContainerCard.css";
 
-function ContainerCard({ service, status, statusKnown, onAction, composeFile }) {
+function ContainerCard({ service, status, onAction, composeFile }) {
   const [actionLoading, setActionLoading] = useState(false);
 
   const handleAction = async (action) => {
     setActionLoading(true);
-    try {
-      await onAction(service, action, composeFile);
-    } finally {
-      setActionLoading(false);
-    }
+    await onAction(service, action, composeFile);
+    setActionLoading(false);
   };
 
   const getStateColor = (state) => {
@@ -27,7 +24,7 @@ function ContainerCard({ service, status, statusKnown, onAction, composeFile }) 
     }
   };
 
-  const isDown = statusKnown && !status;
+  const isDown = !status;
   const isRunning = status?.State?.toLowerCase() === "running";
 
   return (
@@ -43,7 +40,7 @@ function ContainerCard({ service, status, statusKnown, onAction, composeFile }) 
           </span>
         ) : (
           <span className="status-badge" style={{ backgroundColor: "#999" }}>
-            {statusKnown ? "DOWN" : "UNKNOWN"}
+            DOWN
           </span>
         )}
       </div>
@@ -58,12 +55,6 @@ function ContainerCard({ service, status, statusKnown, onAction, composeFile }) 
             <span className="label">Name:</span>
             <span className="value">{status.Name || "N/A"}</span>
           </div>
-          {status.Health && (
-            <div className="status-row">
-              <span className="label">Health:</span>
-              <span className="value">{status.Health}</span>
-            </div>
-          )}
           {status.Ports && status.Ports.length > 0 && (
             <div className="status-row">
               <span className="label">Ports:</span>
@@ -85,7 +76,7 @@ function ContainerCard({ service, status, statusKnown, onAction, composeFile }) 
         </div>
       )}
 
-      <div className="card-actions" hidden={!statusKnown}>
+      <div className="card-actions">
         {isDown ? (
           <>
             <button
@@ -108,35 +99,35 @@ function ContainerCard({ service, status, statusKnown, onAction, composeFile }) 
             <button
               className="btn btn-start"
               onClick={() => handleAction("start")}
-              disabled={!statusKnown || actionLoading || isRunning}
+              disabled={actionLoading || isRunning}
             >
               ▶️ Start
             </button>
             <button
               className="btn btn-restart"
               onClick={() => handleAction("restart")}
-              disabled={!statusKnown || actionLoading || !isRunning}
+              disabled={actionLoading || !isRunning}
             >
               🔄 Restart
             </button>
             <button
               className="btn btn-stop"
               onClick={() => handleAction("stop")}
-              disabled={!statusKnown || actionLoading || !isRunning}
+              disabled={actionLoading || !isRunning}
             >
               ⏹️ Stop
             </button>
             <button
               className="btn btn-down"
               onClick={() => handleAction("down")}
-              disabled={!statusKnown || actionLoading}
+              disabled={actionLoading}
             >
               🗑️ Remove
             </button>
             <button
               className="btn btn-pull"
               onClick={() => handleAction("pull")}
-              disabled={!statusKnown || actionLoading}
+              disabled={actionLoading}
             >
               ⬇️ Pull
             </button>

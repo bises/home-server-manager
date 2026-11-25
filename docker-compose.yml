@@ -1,7 +1,9 @@
 services:
   broker:
     build: .
-    container_name: home-server-broker
+    group_add:
+      - "${HSM_DOCKER_GID:?Set HSM_DOCKER_GID to the Docker socket group ID}"
+    network_mode: none
     command:
       - home-server-manager
       - broker
@@ -12,12 +14,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - hsm-socket:/run/hsm
-      - ./fixtures/manager.json:/etc/home-server-manager/manager.json:ro
+      - "${HSM_MANAGER_CONFIG:-./fixtures/manager.json}:/etc/home-server-manager/manager.json:ro"
     restart: unless-stopped
 
   web:
     build: .
-    container_name: home-server-web
     depends_on:
       - broker
     command:
@@ -32,8 +33,8 @@ services:
     ports:
       - "127.0.0.1:8090:8090"
     volumes:
-      - hsm-socket:/run/hsm
-      - ./fixtures/manager.json:/etc/home-server-manager/manager.json:ro
+      - hsm-socket:/run/hsm:ro
+      - "${HSM_MANAGER_CONFIG:-./fixtures/manager.json}:/etc/home-server-manager/manager.json:ro"
     restart: unless-stopped
 
 volumes:
