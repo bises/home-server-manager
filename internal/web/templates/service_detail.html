@@ -1,0 +1,79 @@
+{{define "content"}}
+<section class="page-head">
+  <div>
+    <p class="breadcrumb"><a href="/services">← Services</a></p>
+    <h1>{{.Title}}</h1>
+  </div>
+</section>
+
+{{if .LoadError}}
+<div class="banner banner-warn" role="alert">
+  Could not load service detail: {{.LoadError}}
+</div>
+{{else}}
+
+{{if .ActionError}}
+<div class="banner banner-warn" role="alert">
+  Action error: {{.ActionError}}
+</div>
+{{end}}
+
+{{if .Operation}}
+<div class="banner banner-info" role="status">
+  <strong>Operation {{.Operation.Verb}} ({{.Operation.State}}):</strong> {{.Operation.Message}}
+  {{if or (eq .Operation.State "accepted") (eq .Operation.State "running")}}
+    · <a href="/services/{{.Detail.ID}}?op={{.Operation.ID}}">Refresh status</a>
+  {{end}}
+</div>
+{{end}}
+
+<section class="panel">
+  <div class="detail-head">
+    <span class="badge badge-{{.Detail.State}}">{{stateIcon .Detail.State}} {{stateLabel .Detail.State}}</span>
+    {{if .Detail.Protected}}<span class="pill">Protected (view-only)</span>{{end}}
+    {{if .Detail.URL}}<a class="btn" href="{{.Detail.URL}}" target="_blank" rel="noopener">Open service</a>{{end}}
+  </div>
+
+  <dl class="kv-grid">
+    <div><dt>Service ID</dt><dd class="mono">{{.Detail.ID}}</dd></div>
+    <div><dt>Stack</dt><dd class="mono">{{.Detail.Stack}}</dd></div>
+    <div><dt>Container</dt><dd class="mono">{{if .Detail.ContainerName}}{{.Detail.ContainerName}}{{else}}—{{end}}</dd></div>
+    <div><dt>Image</dt><dd class="mono">{{if .Detail.Image}}{{.Detail.Image}}{{else}}—{{end}}</dd></div>
+    <div><dt>Published ports</dt><dd class="mono">{{formatPorts .Detail.Ports}}</dd></div>
+    <div><dt>Docker status</dt><dd>{{.Detail.StatusText}}</dd></div>
+    <div><dt>Health check</dt><dd>{{.Detail.Health}}{{if gt .Detail.FailingStreak 0}} (failing streak: {{.Detail.FailingStreak}}){{end}}</dd></div>
+    <div><dt>Restarts</dt><dd>{{.Detail.RestartCount}}</dd></div>
+    <div><dt>Started at</dt><dd class="mono">{{if .Detail.StartedAt}}{{.Detail.StartedAt}}{{else}}—{{end}}</dd></div>
+    <div><dt>Finished at</dt><dd class="mono">{{if .Detail.FinishedAt}}{{.Detail.FinishedAt}}{{else}}—{{end}}</dd></div>
+  </dl>
+
+  {{if .Detail.LastHealthOutput}}
+  <div class="health-log">
+    <h2>Last health check output</h2>
+    <pre>{{.Detail.LastHealthOutput}}</pre>
+    {{if .Detail.LastHealthEnd}}<p class="muted">Checked at {{.Detail.LastHealthEnd}}</p>{{end}}
+  </div>
+  {{end}}
+
+  {{if and (eq .User.Role "operator") (not .Detail.Protected) (gt (len .Detail.AllowedActions) 0)}}
+  <div class="action-box">
+    <h2>Service controls</h2>
+    <p class="muted">Stopping or restarting <strong>{{.Detail.DisplayName}}</strong> will briefly interrupt connections to this service.</p>
+    <div class="action-row">
+      {{range .Detail.AllowedActions}}
+      <form method="post" action="/services/{{$.Detail.ID}}/action" onsubmit="return confirm('Run {{.}} on {{$.Detail.DisplayName}}?');">
+        <input type="hidden" name="csrf_token" value="{{$.User.CSRFToken}}">
+        <input type="hidden" name="verb" value="{{.}}">
+        <button class="btn" type="submit">{{.}}</button>
+      </form>
+      {{end}}
+    </div>
+  </div>
+  {{else}}
+  <p class="banner banner-info">
+    {{if .Detail.Protected}}Protected service: view-only.{{else if ne .User.Role "operator"}}Viewer role: actions are disabled.{{else}}Read-only mode: no actions enabled for this service.{{end}}
+  </p>
+  {{end}}
+</section>
+{{end}}
+{{end}}

@@ -1,0 +1,121 @@
+{{define "content"}}
+<section class="page-head">
+  <div>
+    <h1>{{.Snap.Host.Hostname}}</h1>
+    <p class="meta-line">
+      <span>Last refresh: <time datetime="{{.Snap.SampledAt}}">{{.Snap.SampledAt}}</time></span>
+      <span class="freshness freshness-{{.Snap.Freshness}}">
+        {{if eq .Snap.Freshness "fresh"}}Fresh{{else if eq .Snap.Freshness "stale"}}Stale ({{.Snap.StaleAgeSeconds}}s old){{else}}Docker unavailable{{end}}
+      </span>
+      {{if .Snap.ReadOnly}}<span class="pill">Read only</span>{{end}}
+    </p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/?refresh=1">Refresh</a>
+  </div>
+</section>
+
+{{if ne .Snap.Freshness "fresh"}}
+<div class="banner banner-warn" role="status">
+  <strong>Docker status {{.Snap.Freshness}}.</strong>
+  {{if eq .Snap.Freshness "stale"}}
+    Showing last known container state from {{.Snap.LastSuccessAt}} ({{.Snap.StaleAgeSeconds}}s ago).
+  {{else}}
+    Docker has not responded yet. Host metrics remain live.
+  {{end}}
+  {{if .Snap.DockerError}}<span class="muted">({{.Snap.DockerError}})</span>{{end}}
+</div>
+{{end}}
+
+{{if and .User.CanSetup (eq .Snap.Summary.Total 0)}}
+<div class="banner" role="status">Choose the Docker containers you want to monitor. <a href="/setup">Find containers</a></div>
+{{end}}
+
+<section aria-labelledby="summary-heading" class="summary-grid">
+  <h2 id="summary-heading" class="sr-only">Service health summary</h2>
+  <a class="stat-card" href="/services?status=all">
+    <span class="stat-label">Total</span>
+    <span class="stat-value">{{.Snap.Summary.Total}}</span>
+  </a>
+  <a class="stat-card stat-running" href="/services?status=running">
+    <span class="stat-label">● Running</span>
+    <span class="stat-value">{{.Snap.Summary.Running}}</span>
+  </a>
+  <a class="stat-card stat-unhealthy" href="/services?status=unhealthy">
+    <span class="stat-label">▲ Unhealthy</span>
+    <span class="stat-value">{{.Snap.Summary.Unhealthy}}</span>
+  </a>
+  <a class="stat-card stat-stopped" href="/services?status=stopped">
+    <span class="stat-label">■ Stopped</span>
+    <span class="stat-value">{{.Snap.Summary.Stopped}}</span>
+  </a>
+</section>
+
+<section aria-labelledby="attention-heading" class="panel">
+  <div class="panel-head">
+    <h2 id="attention-heading">Needs attention</h2>
+    <a class="link-quiet" href="/services?status=attention">View all</a>
+  </div>
+  {{if .Attention}}
+  <ul class="attention-list">
+    {{range .Attention}}
+    <li>
+      <a class="attention-item" href="/services/{{.ID}}">
+        <span class="badge badge-{{.State}}">{{stateIcon .State}} {{stateLabel .State}}</span>
+        <span class="attention-name">{{.DisplayName}}</span>
+        <span class="muted">{{.Stack}} · {{.StatusText}}</span>
+      </a>
+    </li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p class="muted">All allowlisted services are healthy and running.</p>
+  {{end}}
+</section>
+
+<section aria-labelledby="storage-heading" class="panel">
+  <h2 id="storage-heading">Disk usage</h2>
+  <div class="disk-grid">
+    {{range .Snap.Host.Disks}}
+    <div class="disk-card">
+      <div class="disk-head">
+        <strong>{{.Label}}</strong>
+        <span class="muted"><code>{{.Path}}</code></span>
+      </div>
+      {{if .Available}}
+      <div class="meter" role="progressbar" aria-valuenow="{{formatPct .UsedPercent}}" aria-valuemin="0" aria-valuemax="100">
+        <div class="meter-fill" style="width: {{formatPct .UsedPercent}}"></div>
+      </div>
+      <p class="disk-meta">{{formatBytes .UsedBytes}} used of {{formatBytes .TotalBytes}} ({{formatPct .UsedPercent}}) · {{formatBytes .AvailableBytes}} free</p>
+      {{else}}
+      <p class="muted">Unavailable ({{.Error}})</p>
+      {{end}}
+    </div>
+    {{end}}
+  </div>
+</section>
+
+<section aria-labelledby="host-heading" class="panel">
+  <h2 id="host-heading">Host resources</h2>
+  <dl class="kv-grid">
+    <div>
+      <dt>Memory</dt>
+      <dd>
+        {{if gt .Snap.Host.Memory.TotalBytes 0}}
+          {{formatBytes .Snap.Host.Memory.UsedBytes}} / {{formatBytes .Snap.Host.Memory.TotalBytes}} ({{formatPct .Snap.Host.Memory.UsedPercent}})
+        {{else}}
+          n/a (Linux /proc)
+        {{end}}
+      </dd>
+    </div>
+    <div>
+      <dt>Load average</dt>
+      <dd>{{formatLoad .Snap.Host.Load.Load1}} · {{formatLoad .Snap.Host.Load.Load5}} · {{formatLoad .Snap.Host.Load.Load15}}</dd>
+    </div>
+    <div>
+      <dt>Uptime</dt>
+      <dd>{{formatUptime .Snap.Host.UptimeSeconds}}</dd>
+    </div>
+  </dl>
+</section>
+{{end}}

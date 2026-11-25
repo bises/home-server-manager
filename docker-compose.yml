@@ -1,15 +1,48 @@
 services:
-  home-server-api:
+  broker:
     build: .
-    container_name: home-server-api
-    ports:
-      - "8080:5000"
+    group_add:
+      - "${HSM_DOCKER_GID:?Set HSM_DOCKER_GID to the Docker socket group ID}"
+    network_mode: none
     environment:
-      # Comma-separated paths to docker-compose files to manage
-      - DOCKER_COMPOSE_PATHS=/app/test-docker-compose.yml,/app/goal-tracker-compose.yml
+      HSM_SETUP: "${HSM_SETUP:-true}"
+      HSM_WATCHLIST: /var/lib/hsm-watch/watchlist.json
+    command:
+      - home-server-manager
+      - broker
+      - --config
+      - /etc/home-server-manager/manager.json
+      - --socket
+      - /run/hsm/broker.sock
     volumes:
-      - .:/app
-      - /var/run/docker.sock:/var/run/docker.sock # To allow Docker commands from within container
-      - ./test-docker-compose.yml:/app/test-docker-compose.yml:ro # Test services (nginx, redis, postgres)
-      - /home/deploy/goal-tracker/docker-compose.yml:/app/goal-tracker-compose.yml:ro # Goal Tracker
+      - /var/run/docker.sock:/var/run/docker.sock
+      - hsm-socket:/run/hsm
+      - hsm-watch:/var/lib/hsm-watch
+      - "${HSM_MANAGER_CONFIG:-./fixtures/manager-default.json}:/etc/home-server-manager/manager.json:ro"
     restart: unless-stopped
+
+  web:
+    build: .
+    depends_on:
+      - broker
+    environment:
+      HSM_SETUP: "${HSM_SETUP:-true}"
+    command:
+      - home-server-manager
+      - web
+      - --config
+      - /etc/home-server-manager/manager.json
+      - --socket
+      - /run/hsm/broker.sock
+      - --listen
+      - 0.0.0.0:8090
+    ports:
+      - "127.0.0.1:${HSM_PORT:-8090}:8090"
+    volumes:
+      - hsm-socket:/run/hsm:ro
+      - "${HSM_MANAGER_CONFIG:-./fixtures/manager-default.json}:/etc/home-server-manager/manager.json:ro"
+    restart: unless-stopped
+
+volumes:
+  hsm-socket:
+  hsm-watch:

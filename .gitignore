@@ -1,0 +1,20 @@
+# Build artifacts
+**/dist/
+**/build/
+*.tsbuildinfo
+*.bundle.js
+*.exe
+/home-server-manager
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+auth*.json
+*.key
+*.pem
+*.crt
+
+# Node / IDE
+**/node_modules/
+.DS_Store

@@ -1,0 +1,37 @@
+{{define "layout"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · Home Server Manager</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="/">Home Server Manager</a>
+      <nav aria-label="Primary">
+        <ul class="nav-list">
+          <li><a href="/" {{if eq .ActiveNav "overview"}}aria-current="page"{{end}}>Overview</a></li>
+          <li><a href="/services" {{if eq .ActiveNav "services"}}aria-current="page"{{end}}>Services</a></li>
+          <li><a href="/activity" {{if eq .ActiveNav "activity"}}aria-current="page"{{end}}>Activity</a></li>
+          {{if .User.CanSetup}}<li><a href="/setup" {{if eq .ActiveNav "setup"}}aria-current="page"{{end}}>Setup</a></li>{{end}}
+        </ul>
+      </nav>
+      {{if and .User.Enabled .User.Username}}
+      <form method="post" action="/logout" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{.User.CSRFToken}}">
+        <span class="pill">{{.User.Username}} ({{.User.Role}})</span>
+        <button class="btn btn-sm" type="submit">Sign out</button>
+      </form>
+      {{end}}
+    </div>
+  </header>
+  <main id="main" class="container">
+    {{template "content" .}}
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
+{{end}}

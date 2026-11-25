@@ -1,0 +1,8 @@
+{
+  "host_label": "Home Server",
+  "read_only": true,
+  "mounts": [
+    {"id": "root", "label": "Root storage", "path": "/"}
+  ],
+  "services": []
+}

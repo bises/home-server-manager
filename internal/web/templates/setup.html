@@ -1,0 +1,56 @@
+{{define "content"}}
+<section class="page-head">
+  <div>
+    <h1>Container setup</h1>
+    <p class="meta-line">{{.NewCount}} available to add</p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/setup">Scan again</a>
+    <a class="btn" href="/services?refresh=1">View dashboard services</a>
+  </div>
+</section>
+{{if .Notice}}<div class="banner" role="status">{{.Notice}}</div>{{end}}
+{{if .Error}}<div class="banner banner-warn" role="alert">{{.Error}}</div>{{end}}
+<section class="panel setup-panel">
+  <h2>Docker containers</h2>
+  {{if .Entries}}
+  <form method="post" action="/setup">
+    {{if .User.Enabled}}<input type="hidden" name="csrf_token" value="{{.User.CSRFToken}}">{{end}}
+    {{if .NewCount}}
+    <div class="actions setup-actions">
+      <button class="btn" type="submit" name="action" value="add">Add selected</button>
+      <button class="btn" type="submit" name="action" value="add-all">Add all available</button>
+    </div>
+    {{end}}
+    <div class="table-wrap">
+      <table class="svc-table setup-table">
+        <thead><tr><th>Select</th><th>Container</th><th>Stack</th><th>Health</th><th>Dashboard</th></tr></thead>
+        <tbody>
+        {{range .Entries}}
+        <tr>
+          <td>
+            {{if and .Present (not .Managed) (not .Watching)}}<input type="checkbox" name="container" value="{{.Name}}" aria-label="Select {{.Name}}">{{end}}
+          </td>
+          <td><strong>{{.Name}}</strong>{{if .Image}}<br><span class="muted mono">{{.Image}}</span>{{end}}</td>
+          <td>{{.Stack}}</td>
+          <td>{{if .Present}}<span class="badge badge-{{.State}}">{{stateIcon .State}} {{stateLabel .State}}</span>{{else}}Missing{{end}}</td>
+          <td>
+            {{if .Watching}}
+              <button class="btn btn-sm" type="submit" name="remove" value="{{.Name}}" aria-label="Remove {{.Name}} from dashboard">Remove</button>
+            {{else if .Managed}}
+              <span class="pill">From config</span>
+            {{else}}
+              <span class="muted">Available</span>
+            {{end}}
+          </td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </form>
+  {{else if not .Error}}
+    <p>No containers found. Start a container and scan again.</p>
+  {{end}}
+</section>
+{{end}}

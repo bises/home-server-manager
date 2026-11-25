@@ -1,299 +1,49 @@
 # Home Server Manager
 
-A lightweight Docker container management interface built with Flask and React. Manage your Docker Compose services through a clean web UI.
+Monitor a Docker host and run approved start, stop, and restart actions. A Go broker owns the Docker socket. The dashboard and versioned API use a separate process that connects to the broker over a Unix socket.
 
-## Features
+## First run
 
-- 🐳 **Docker Compose Integration**: Discover and manage services defined in your docker-compose.yml files
-- 🎛️ **Container Controls**: Start, stop, restart, bring up, or tear down individual services
-- 📊 **Real-time Status**: View container states with color-coded indicators
-- 🔄 **Auto-discovery**: Services are automatically detected from your compose file
-- 🪶 **Lightweight**: Alpine-based Docker image (~250MB)
+Start this Compose project on the Linux Docker host. The default configuration starts with an empty read-only dashboard.
 
-## Architecture
-
-- **Frontend**: React 18 with static serving
-- **Backend**: Flask 3 API with Docker Compose CLI integration
-- **Container Management**: Direct Docker socket access via mounted `/var/run/docker.sock`
-
-## Quick Start
-
-### Using Docker Compose (Recommended)
-
-```bash
-# Clone the repository
-git clone <your-repo-url>
-cd home-server-manager-api
-
-# Start the application
-docker-compose up -d
-
-# Access the UI
-# Visit http://localhost:8080
+```sh
+export HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+docker compose up -d --build
 ```
 
-### Using Docker Hub Image
+Open http://127.0.0.1:8090 to go directly to the read-only dashboard. Keep the host port bound to loopback for this setup mode. From another machine, use an SSH tunnel such as `ssh -L 8090:127.0.0.1:8090 operator@example.test`. The Docker group ID grants socket access to the broker. The web service receives the broker socket on a read-only mount.
 
-```bash
-docker run -d \
-  -p 8080:5000 \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  -v /path/to/your/docker-compose.yml:/app/test-docker-compose.yml:ro \
-  -e DOCKER_COMPOSE_PATH=/app/test-docker-compose.yml \
-  abises/home-server-manager
+Open **Setup**, choose **Add selected** or **Add all available**, and view the dashboard. The scan includes existing running and stopped containers from Compose and standalone containers. Open Setup again any time to scan for new containers or remove a watch. Watches follow the exact Docker container name and inherit no container control permissions. The watch list persists in the broker volume across ordinary restarts and updates.
+
+Set a private `HSM_AUTH_CONFIG` with an operator account to require sign-in. Set `HSM_PORT` to choose a different host loopback port.
+
+## Disposable fixture
+
+For the original read-only demo with sample entries and anonymous loopback viewing, run these commands in a separate Compose project with a free host port.
+
+```sh
+export HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+export HSM_MANAGER_CONFIG=./fixtures/manager.json
+export HSM_SETUP=false
+docker compose -f fixtures/compose.yaml up -d
+docker compose -f fixtures/compose.yaml stop fixture-stopped
+docker compose -p hsm-demo up -d --build
 ```
 
-## How It Works
+## Authenticated controls
 
-### Container Discovery
+For a pilot, copy `fixtures/manager-phase2.json` to a private directory and adapt the project, service, and action allowlists. Keep protected services read-only. Give the broker and web process the same manager configuration. The writable web process requires an authentication configuration.
 
-The application uses **Docker Compose project names** to track containers. This is critical for proper operation:
+Use `HSM_MANAGER_CONFIG` to point Compose at that manager config. In a private Compose override, mount your auth JSON read-only into the `web` service and set `HSM_AUTH_CONFIG` to its path inside the container. Set `HSM_DISABLE_UI=true` in the web service for API-only mode. Keep both config files readable by the service user. See [Home Assistant setup](docs/home-assistant/README.md) for scoped credentials, REST sensors, and a restart button.
 
-1. Your compose file must define an explicit project name:
-
-```yaml
-name: home-server # This is required!
-
-services:
-  nginx:
-    image: nginx:latest
-    ports:
-      - "9090:80"
-```
-
-2. All docker-compose commands use the `-p home-server` flag to ensure consistency
-
-3. The API queries containers using: `docker-compose -p home-server -f <path> ps -a --format json`
-
-**Why this matters**: Docker Compose only recognizes containers that have matching project labels. If containers are started without a project name, they won't appear in the manager.
-
-## API Endpoints
-
-### Service Discovery
-
-**GET** `/api/services`
-
-Returns all services defined in the docker-compose file.
-
-```json
-{
-  "services": ["nginx", "redis", "postgres"]
-}
-```
-
-### Container Status
-
-**GET** `/api/containers/status`
-
-Returns the current state of all containers managed by the compose file.
-
-```json
-{
-  "nginx": {
-    "Name": "home-server-nginx-1",
-    "Service": "nginx",
-    "State": "running",
-    "Health": "",
-    "Publishers": [
-      { "URL": "", "TargetPort": 80, "PublishedPort": 9090, "Protocol": "tcp" }
-    ]
-  }
-}
-```
-
-### Container Management
-
-**POST** `/api/containers/start/<service>`
-
-Starts a stopped container (container must already exist).
-
-**POST** `/api/containers/stop/<service>`
-
-Stops a running container without removing it.
-
-**POST** `/api/containers/restart/<service>`
-
-Restarts a container (stop + start).
-
-**POST** `/api/containers/up/<service>`
-
-Creates and starts a container (use this for containers that don't exist yet).
-
-**POST** `/api/containers/down/<service>`
-
-Stops and removes a container completely.
-
-All management endpoints return:
-
-```json
-{
-  "message": "Container <service> <action> successfully",
-  "status": "success"
-}
-```
-
-## UI Features
-
-### Service Cards
-
-Each service appears as a card showing:
-
-- **Service name** (from compose file)
-- **Status badge**:
-  - 🟢 Green: Running
-  - 🔴 Red: Stopped/Exited
-  - ⚫ Gray: Down (removed/never created)
-  - 🟠 Orange: Other states
-- **Action buttons**:
-  - Start, Stop, Restart (for existing containers)
-  - Bring Up (for removed/non-existent containers)
-
-### Refresh Status Button
-
-Click "Refresh Status" to manually update container states.
+Use HTTPS and an access policy for approved devices when exposing the service to a remote browser or Home Assistant. Set `HSM_SECURE_COOKIES=true` for browser sessions behind HTTPS. Leave the web port on loopback when using an HTTPS reverse proxy. The login limit applies to the immediate network peer. For clients behind a reverse proxy, apply per-client limits at that proxy as well.
 
 ## Development
 
-### Local Development
-
-```bash
-# Backend
-cd home-server-manager-api
-pip install -r requirements.txt
-python app.py
-
-# Frontend
-cd frontend
-npm install
-npm start
+```sh
+go vet ./...
+go test ./...
+go build ./cmd/home-server-manager
 ```
 
-The frontend dev server runs on `http://localhost:3000` and proxies API requests to `http://localhost:5000`.
-
-### Building for Production
-
-```bash
-# Build the Docker image
-docker build -t home-server-manager .
-
-# Or use the multi-arch build
-docker buildx build --platform linux/amd64,linux/arm64 -t your-repo/home-server-manager .
-```
-
-### CI/CD
-
-The project includes a GitHub Actions workflow that:
-
-- Triggers on push to `main` branch or manual dispatch
-- Requires production environment approval (for private repos)
-- Builds and pushes to Docker Hub
-- Tags images with both `latest` and the git SHA
-
-Required secrets:
-
-- `DOCKER_USERNAME`
-- `DOCKER_PASSWORD`
-
-## Project Structure
-
-```
-home-server-manager-api/
-├── app.py                          # Flask backend API
-├── requirements.txt                # Python dependencies
-├── Dockerfile                      # Multi-stage Alpine build
-├── docker-compose.yml              # Local deployment
-├── test-docker-compose.yml         # Test services (nginx, redis, postgres)
-├── .github/
-│   └── workflows/
-│       └── docker-build-push.yml   # CI/CD pipeline
-└── frontend/
-    ├── package.json                # React dependencies
-    ├── public/
-    │   └── index.html
-    └── src/
-        ├── App.js                  # Main React component
-        ├── App.css
-        └── components/
-            ├── ContainerCard.js    # Service card component
-            └── ContainerCard.css
-```
-
-## Configuration
-
-### Environment Variables
-
-- `DOCKER_COMPOSE_PATH`: Path to your docker-compose.yml file (default: `./test-docker-compose.yml`)
-- `FLASK_ENV`: Set to `development` for debug mode
-
-### Docker Compose Project Name
-
-**This is the most important configuration!**
-
-Ensure your compose file has an explicit project name:
-
-```yaml
-name: home-server # Must match what's used in docker-compose commands
-```
-
-All docker-compose commands in the API use: `docker-compose -p home-server -f <path> <command>`
-
-## Troubleshooting
-
-### Containers Not Showing in UI
-
-**Symptom**: Containers are running (`docker ps` shows them) but the UI says "Down"
-
-**Cause**: Docker Compose project name mismatch
-
-**Solution**:
-
-1. Check if your containers have the correct project label:
-
-   ```bash
-   docker inspect <container> | grep com.docker.compose.project
-   ```
-
-2. If they don't match "home-server", remove all containers and restart with the correct project name:
-
-   ```bash
-   docker rm -f $(docker ps -aq)
-   docker-compose -p home-server -f test-docker-compose.yml up -d
-   ```
-
-3. Ensure your compose file has `name: home-server` at the top level
-
-### "Bring Up" vs "Start" Button
-
-- **Start**: Only works for stopped containers that already exist
-- **Bring Up**: Creates a new container and starts it (use this for removed containers)
-
-### Port Conflicts
-
-If you see errors about ports already in use, check which process is using the port:
-
-```bash
-# Windows
-netstat -ano | findstr :8080
-
-# Linux/Mac
-lsof -i :8080
-```
-
-## Security Considerations
-
-⚠️ **WARNING**: This application requires access to the Docker socket (`/var/run/docker.sock`). This provides **root-level access** to the host system.
-
-**Security recommendations**:
-
-- Only use in trusted environments (home lab, private network)
-- Consider using Docker socket proxy (e.g., `tecnativa/docker-socket-proxy`) for production
-- Restrict network access using firewall rules or reverse proxy
-- Use Tailscale or VPN for remote access instead of exposing directly to the internet
-
-## License
-
-[Your License Here]
-
-## Contributing
-
-Contributions welcome! Please open an issue or PR.
+The supported Go command is `./cmd/home-server-manager`, with `broker` and `web` subcommands. See the [disposable test fixture](fixtures/README.md) and [rewrite design](docs/designs/home-server-manager-rewrite.md).

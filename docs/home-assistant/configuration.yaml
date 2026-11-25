@@ -1,0 +1,131 @@
+# Example Home Assistant configuration for Home Server Manager (Phase 2)
+# Set in secrets.yaml (see docs/home-assistant/README.md):
+#   hsm_snapshot_url: "http://127.0.0.1:8090/api/v1/snapshot"
+#   hsm_restart_fixture_web_url: "http://127.0.0.1:8090/api/v1/services/fixture-web/actions/restart"
+#   hsm_operation_base_url: "http://127.0.0.1:8090/api/v1/operations"
+#   hsm_read_token: "Bearer <READ_ONLY_TOKEN>"
+#   hsm_action_token: "Bearer <SCOPED_ACTION_TOKEN>"
+
+rest:
+  - resource: !secret hsm_snapshot_url
+    scan_interval: 30
+    timeout: 10
+    headers:
+      Authorization: !secret hsm_read_token
+    sensor:
+      - name: "Home Server Freshness"
+        unique_id: hsm_snapshot_freshness
+        value_template: "{{ value_json.freshness }}"
+        json_attributes:
+          - sampled_at
+          - last_success_at
+          - stale_age_seconds
+          - docker_available
+          - docker_error
+
+      - name: "Home Server Running Services"
+        unique_id: hsm_running_services
+        value_template: "{{ value_json.summary.running }}"
+        unit_of_measurement: "services"
+        json_attributes_path: "$.summary"
+        json_attributes:
+          - total
+          - stopped
+          - unhealthy
+          - starting
+          - unknown
+
+      - name: "Home Server Memory Used"
+        unique_id: hsm_memory_used_percent
+        value_template: "{{ value_json.host.memory.used_percent | round(1) }}"
+        unit_of_measurement: "%"
+
+      - name: "Home Server Root Disk Used"
+        unique_id: hsm_root_disk_used_percent
+        value_template: >-
+          {% set disks = value_json.host.disks | selectattr('id', 'equalto', 'root') | list %}
+          {{ (disks[0].used_percent | round(1)) if disks and disks[0].available else 'unavailable' }}
+        unit_of_measurement: "%"
+
+      - name: "Home Server Fixture Web"
+        unique_id: hsm_svc_fixture_web
+        value_template: >-
+          {% set svcs = value_json.services | selectattr('id', 'equalto', 'fixture-web') | list %}
+          {{ svcs[0].state if svcs else 'unknown' }}
+
+rest_command:
+  hsm_restart_fixture_web:
+    url: !secret hsm_restart_fixture_web_url
+    method: POST
+    headers:
+      Authorization: !secret hsm_action_token
+      Content-Type: application/json
+
+  hsm_poll_operation:
+    url: "{{ base_url }}/{{ operation_id }}"
+    method: GET
+    timeout: 3
+    headers:
+      Authorization: !secret hsm_action_token
+
+script:
+  restart_fixture_web:
+    alias: "Restart Fixture Web"
+    mode: single
+    variables:
+      op_base_url: !secret hsm_operation_base_url
+    sequence:
+      - action: rest_command.hsm_restart_fixture_web
+        response_variable: restart_resp
+      - if:
+          - condition: template
+            value_template: "{{ restart_resp.status != 202 }}"
+        then:
+          - action: persistent_notification.create
+            data:
+              title: "Fixture Web Restart Rejected"
+              message: "HTTP {{ restart_resp.status }}: {{ restart_resp.content.message | default('unknown error') }}"
+          - stop: "Restart request rejected"
+      - variables:
+          op_id: "{{ restart_resp.content.id }}"
+          operation_finished: false
+          final_state: "unknown"
+          final_message: "Timed out waiting for operation confirmation; check current service state."
+      - repeat:
+          sequence:
+            - delay:
+                seconds: 2
+            - variables:
+                poll_resp: {}
+            - action: rest_command.hsm_poll_operation
+              continue_on_error: true
+              data:
+                base_url: "{{ op_base_url }}"
+                operation_id: "{{ op_id }}"
+              response_variable: poll_resp
+            - if:
+                - condition: template
+                  value_template: >-
+                    {{ poll_resp.status | default(0) == 200 and poll_resp.content is mapping
+                       and poll_resp.content.state | default('') in ['succeeded', 'failed', 'unknown'] }}
+              then:
+                - variables:
+                    operation_finished: true
+                    final_state: "{{ poll_resp.content.state }}"
+                    final_message: "{{ poll_resp.content.message }}"
+          until: "{{ operation_finished or repeat.index >= 15 }}"
+      - action: persistent_notification.create
+        data:
+          title: "Fixture Web Restart: {{ final_state }}"
+          message: "Operation {{ op_id }}: {{ final_message }}"
+
+# Example Lovelace dashboard button card with confirmation:
+#
+# type: button
+# name: Restart Fixture Web
+# icon: mdi:restart
+# tap_action:
+#   action: perform-action
+#   perform_action: script.restart_fixture_web
+#   confirmation:
+#     text: "Restart Fixture Web? Active connections will briefly drop."
