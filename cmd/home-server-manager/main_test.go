@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,6 +20,24 @@ import (
 	"github.com/bises/home-server-manager/internal/snapshot"
 	"github.com/bises/home-server-manager/internal/web"
 )
+
+func TestRunWebRejectsEmptyAuthConfigWithoutSetup(t *testing.T) {
+	authPath := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(authPath, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := runWeb(ctx, []string{
+		"--config", filepath.Join("..", "..", "fixtures", "manager-default.json"),
+		"--auth-config", authPath,
+		"--setup=false",
+		"--listen", "127.0.0.1:0",
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires at least one user or token") {
+		t.Fatalf("empty auth config should fail before listening, got %v", err)
+	}
+}
 
 func TestEndToEndUnixSocketBrokerAndWeb(t *testing.T) {
 	var dockerDown atomic.Bool

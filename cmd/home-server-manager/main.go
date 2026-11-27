@@ -107,13 +107,12 @@ func runWeb(ctx context.Context, args []string) error {
 			return err
 		}
 		authMgr = auth.NewManager(authCfg)
+		if !authMgr.Enabled() {
+			return fmt.Errorf("the supplied auth config requires at least one user or token")
+		}
 	}
 	if !cfg.ReadOnly && (authMgr == nil || !authMgr.Enabled()) {
 		return fmt.Errorf("writable configuration (read_only=false) requires --auth-config with at least one user or token")
-	}
-
-	if *setup && *authPath != "" && !authMgr.Enabled() {
-		return fmt.Errorf("container setup requires at least one user or token in the supplied auth config")
 	}
 
 	brokerClient := snapshot.NewUnixBrokerClient(*sockPath)

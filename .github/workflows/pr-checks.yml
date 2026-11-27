@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Read the Docker socket group ID
+        run: |
+          gid="$(stat -c '%g' /var/run/docker.sock)"
+          printf 'HSM_DOCKER_GID=%s\n' "$gid" >> "$GITHUB_ENV"
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -22,9 +26,19 @@ jobs:
         run: |
           go vet ./...
           go test ./...
+      - name: Verify the Tailscale Compose override
+        env:
+          HSM_TAILSCALE_IP: "100.64.0.10"
+          HSM_AUTH_FILE: /tmp/example-hsm-auth.json
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.tailscale.yml config --format json |
+            jq -e '
+              (.services.web.ports | map(.host_ip) | sort) == ["100.64.0.10", "127.0.0.1"] and
+              .services.web.environment.HSM_AUTH_CONFIG == "/etc/home-server-manager/auth.json" and
+              any(.services.web.volumes[]; .target == "/etc/home-server-manager/auth.json" and .read_only == true and .bind.create_host_path == false)
+            ' >/dev/null
       - name: Build and start the Compose services
         run: |
-          export HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
           docker compose up -d --build
           for attempt in $(seq 1 20); do
             if curl --silent --fail --max-time 5 http://127.0.0.1:8090/api/v1/snapshot |
@@ -37,5 +51,5 @@ jobs:
           docker compose logs --no-color
           exit 1
       - name: Stop the fixture
-        if: always()
-        run: HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)" docker compose down --volumes
+        if: always() && env.HSM_DOCKER_GID != ''
+        run: docker compose down --volumes
