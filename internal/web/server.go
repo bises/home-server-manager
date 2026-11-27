@@ -48,7 +48,7 @@ func NewServer(snap *snapshot.Service, opts Options) (*Server, error) {
 		snap:          snap,
 		disableUI:     opts.DisableUI,
 		auth:          opts.Auth,
-		secureCookies: opts.SecureCookies,
+		secureCookies: opts.SecureCookies || opts.Auth.ManagesAccounts(),
 		discovery:     opts.Discovery,
 		localSetup:    opts.LocalSetup && !opts.Auth.Enabled(),
 	}
@@ -78,6 +78,12 @@ func (s *Server) Handler() http.Handler {
 		mux.HandleFunc("GET /login", s.handleLoginGet)
 		mux.HandleFunc("POST /login", s.handleLoginPost)
 		mux.HandleFunc("POST /logout", s.handleLogout)
+		if s.auth.ManagesAccounts() {
+			mux.HandleFunc("GET /account/setup", s.handleAccountSetup)
+			mux.HandleFunc("POST /account/setup", s.handleAccountSetup)
+			mux.HandleFunc("GET /account/password", s.handlePasswordChange)
+			mux.HandleFunc("POST /account/password", s.handlePasswordChange)
+		}
 		mux.HandleFunc("GET /{$}", s.handleOverview)
 		mux.HandleFunc("GET /services", s.handleServices)
 		mux.HandleFunc("GET /services/{id}", s.handleServiceDetail)
@@ -90,6 +96,15 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	handler := http.NewCrossOriginProtection().Handler(mux)
+	if s.auth.ManagesAccounts() {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.TLS == nil {
+				http.Error(w, "HTTPS is required", http.StatusForbidden)
+				return
+			}
+			handler.ServeHTTP(w, r)
+		})
+	}
 	if !s.localSetup {
 		return handler
 	}
@@ -271,11 +286,12 @@ func (s *Server) handleAPIAction(w http.ResponseWriter, r *http.Request) {
 }
 
 type navUser struct {
-	Enabled   bool
-	Username  string
-	Role      string
-	CSRFToken string
-	CanSetup  bool
+	Enabled           bool
+	Username          string
+	Role              string
+	CSRFToken         string
+	CanSetup          bool
+	CanChangePassword bool
 }
 
 type stackGroup struct {
@@ -330,17 +346,22 @@ type activityData struct {
 
 func (s *Server) toNavUser(sess auth.Session) navUser {
 	return navUser{
-		Enabled:   s.authEnabled(),
-		Username:  sess.Username,
-		Role:      sess.Role,
-		CSRFToken: sess.CSRFToken,
-		CanSetup:  s.discovery != nil && (s.localSetup || (s.authEnabled() && sess.Role == "operator")),
+		Enabled:           s.authEnabled(),
+		Username:          sess.Username,
+		Role:              sess.Role,
+		CSRFToken:         sess.CSRFToken,
+		CanSetup:          s.discovery != nil && (s.localSetup || (s.authEnabled() && sess.Role == "operator")),
+		CanChangePassword: s.auth.ManagesAccounts() && sess.Username != "",
 	}
 }
 
 func (s *Server) handleLoginGet(w http.ResponseWriter, r *http.Request) {
 	if !s.authEnabled() {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if s.auth.NeedsAccountSetup() {
+		http.Redirect(w, r, "/account/setup", http.StatusSeeOther)
 		return
 	}
 	s.render(w, "login.html", loginData{Title: "Sign in"})
@@ -351,21 +372,28 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+	if s.auth.NeedsAccountSetup() {
+		http.Redirect(w, r, "/account/setup", http.StatusSeeOther)
+		return
+	}
+	if s.auth.ManagesAccounts() {
+		if !sameOriginAccountPost(r) {
+			http.Error(w, "Same-origin form submission required", http.StatusForbidden)
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxAccountFormBytes)
+	}
 	if err := r.ParseForm(); err != nil {
 		s.renderStatus(w, http.StatusBadRequest, "login.html", loginData{Title: "Sign in", Error: "Invalid form submission"})
 		return
 	}
-	// RemoteAddr is the immediate peer. Forwarded headers are not trusted here.
-	rateKey, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		rateKey = r.RemoteAddr
-	}
+	rateKey := immediatePeer(r)
 	if !s.auth.BeginLogin(rateKey) {
 		w.Header().Set("Retry-After", "60")
 		s.renderStatus(w, http.StatusTooManyRequests, "login.html", loginData{Title: "Sign in", Error: "Too many failed login attempts. Try again in a minute."})
 		return
 	}
-	_, cookieVal, ok := s.auth.AuthenticateUser(r.FormValue("username"), r.FormValue("password"))
+	_, cookieVal, ok := s.auth.AuthenticateUser(r.PostForm.Get("username"), r.PostForm.Get("password"))
 	if !ok {
 		s.renderStatus(w, http.StatusUnauthorized, "login.html", loginData{Title: "Sign in", Error: "Invalid username or password"})
 		return
@@ -382,6 +410,26 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// immediatePeer uses the connection address because clients can set forwarded headers.
+func immediatePeer(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func (s *Server) clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   s.secureCookies,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if s.authEnabled() {
 		sess, ok := s.requireBrowserSession(w, r)
@@ -395,15 +443,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie(auth.SessionCookieName); err == nil {
 			s.auth.DeleteSession(c.Value)
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name:     auth.SessionCookieName,
-			Value:    "",
-			Path:     "/",
-			MaxAge:   -1,
-			HttpOnly: true,
-			Secure:   s.secureCookies,
-			SameSite: http.SameSiteLaxMode,
-		})
+		s.clearSessionCookie(w)
 	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
@@ -691,7 +731,7 @@ func parseTemplates() (map[string]*template.Template, error) {
 		},
 	}
 
-	pageNames := []string{"login.html", "overview.html", "services.html", "service_detail.html", "activity.html", "setup.html"}
+	pageNames := []string{"login.html", "overview.html", "services.html", "service_detail.html", "activity.html", "setup.html", "account.html"}
 	out := make(map[string]*template.Template, len(pageNames))
 	for _, p := range pageNames {
 		t, err := template.New("layout").Funcs(funcs).ParseFS(assetsFS, "templates/layout.html", "templates/"+p)

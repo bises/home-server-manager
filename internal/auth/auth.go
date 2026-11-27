@@ -46,6 +46,7 @@ type Config struct {
 	SessionTTLHours int           `json:"session_ttl_hours,omitempty"`
 	Users           []UserConfig  `json:"users"`
 	Tokens          []TokenConfig `json:"tokens"`
+	Bootstrap       *Bootstrap    `json:"bootstrap,omitempty"`
 }
 
 // Session represents an authenticated browser session.
@@ -87,6 +88,8 @@ type Manager struct {
 	users      []UserConfig
 	tokens     []TokenConfig
 	now        func() time.Time
+	storePath  string
+	managed    Config
 
 	mu             sync.Mutex
 	sessions       map[string]Session
@@ -224,7 +227,10 @@ func (m *Manager) AuthenticateUser(username, password string) (Session, string, 
 	if username == "" || password == "" {
 		return Session{}, "", false
 	}
-	for _, u := range m.users {
+	m.mu.Lock()
+	users := m.users
+	m.mu.Unlock()
+	for _, u := range users {
 		if subtle.ConstantTimeCompare([]byte(u.Username), []byte(username)) == 1 &&
 			VerifyPassword(password, u.PasswordHash) {
 			sess := Session{
@@ -235,8 +241,12 @@ func (m *Manager) AuthenticateUser(username, password string) (Session, string, 
 				ExpiresAt: m.now().Add(m.sessionTTL),
 			}
 			m.mu.Lock()
+			defer m.mu.Unlock()
+			// Password rotation replaces the user record and revokes its sessions.
+			if !slices.Contains(m.users, u) {
+				return Session{}, "", false
+			}
 			m.sessions[sess.ID] = sess
-			m.mu.Unlock()
 			return sess, m.signSessionID(sess.ID), true
 		}
 	}

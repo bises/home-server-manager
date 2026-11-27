@@ -39,6 +39,10 @@ func main() {
 		if err := runWeb(ctx, os.Args[2:]); err != nil {
 			log.Fatal(err)
 		}
+	case "auth-init":
+		if err := runAuthInit(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 	default:
 		usage()
 		os.Exit(2)
@@ -46,7 +50,24 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, "Usage: %s <broker|web> [flags]\n", filepath.Base(os.Args[0]))
+	fmt.Fprintf(os.Stderr, "Usage: %s <broker|web|auth-init> [flags]\n", filepath.Base(os.Args[0]))
+}
+
+func runAuthInit(args []string) error {
+	fs := flag.NewFlagSet("auth-init", flag.ExitOnError)
+	path := fs.String("auth-config", "", "path to a new managed auth JSON file in a private directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *path == "" {
+		return fmt.Errorf("auth-init requires --auth-config")
+	}
+	code, expires, err := auth.InitManagedConfig(*path)
+	if err != nil {
+		return fmt.Errorf("initialize account setup: %w", err)
+	}
+	fmt.Printf("One-time setup code (expires %s): %s\n", expires.Format(time.RFC3339), code)
+	return nil
 }
 
 func runBroker(ctx context.Context, args []string) error {
@@ -91,8 +112,18 @@ func runWeb(ctx context.Context, args []string) error {
 	disableUI := fs.Bool("disable-ui", envBool("HSM_DISABLE_UI"), "disable built-in HTML UI and serve /api/v1/* only")
 	setup := fs.Bool("setup", envBool("HSM_SETUP"), "enable container setup")
 	secureCookies := fs.Bool("secure-cookies", envBool("HSM_SECURE_COOKIES"), "set Secure attribute on session cookies (enable behind HTTPS)")
+	manageAuth := fs.Bool("manage-auth", envBool("HSM_MANAGE_AUTH"), "enable browser account setup and password changes")
+	tlsCert := fs.String("tls-cert", envOr("HSM_TLS_CERT", ""), "path to the HTTPS certificate and chain")
+	tlsKey := fs.String("tls-key", envOr("HSM_TLS_KEY", ""), "path to the HTTPS private key")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if (*tlsCert == "") != (*tlsKey == "") {
+		return fmt.Errorf("HTTPS requires both --tls-cert and --tls-key")
+	}
+	usingTLS := *tlsCert != ""
+	if *manageAuth && (!usingTLS || *authPath == "" || *disableUI) {
+		return fmt.Errorf("managed auth requires HTTPS, --auth-config, and the web UI")
 	}
 
 	cfg, err := config.Load(*cfgPath)
@@ -101,10 +132,18 @@ func runWeb(ctx context.Context, args []string) error {
 	}
 
 	var authMgr *auth.Manager
-	if *authPath != "" {
+	if *manageAuth {
+		authMgr, err = auth.NewManagedManager(*authPath)
+		if err != nil {
+			return err
+		}
+	} else if *authPath != "" {
 		authCfg, err := auth.LoadConfig(*authPath)
 		if err != nil {
 			return err
+		}
+		if authCfg.Bootstrap != nil {
+			return fmt.Errorf("a setup code requires --manage-auth and HTTPS")
 		}
 		authMgr = auth.NewManager(authCfg)
 		if !authMgr.Enabled() {
@@ -118,7 +157,7 @@ func runWeb(ctx context.Context, args []string) error {
 	brokerClient := snapshot.NewUnixBrokerClient(*sockPath)
 	snapSvc := snapshot.NewService(cfg, brokerClient, hostmetrics.NewReader())
 	opts := web.Options{
-		DisableUI: *disableUI, Auth: authMgr, SecureCookies: *secureCookies,
+		DisableUI: *disableUI, Auth: authMgr, SecureCookies: *secureCookies || usingTLS,
 		LocalSetup: *setup && cfg.ReadOnly && !authMgr.Enabled(),
 	}
 	if *setup && !*disableUI {
@@ -140,8 +179,14 @@ func runWeb(ctx context.Context, args []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("Web/API listening on http://%s (ui_enabled=%v, broker=unix://%s)", *listenAddr, !*disableUI, *sockPath)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		scheme := "http"
+		serve := srv.ListenAndServe
+		if usingTLS {
+			scheme = "https"
+			serve = func() error { return srv.ListenAndServeTLS(*tlsCert, *tlsKey) }
+		}
+		log.Printf("Web/API listening on %s://%s (ui_enabled=%v, broker=unix://%s)", scheme, *listenAddr, !*disableUI, *sockPath)
+		if err := serve(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 			return
 		}

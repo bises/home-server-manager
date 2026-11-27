@@ -1,0 +1,30 @@
+services:
+  web:
+    environment:
+      HSM_MANAGE_AUTH: "true"
+      HSM_AUTH_CONFIG: /run/hsm-accounts/auth.json
+      HSM_TLS_CERT: /run/hsm-tls/server.crt
+      HSM_TLS_KEY: /run/hsm-tls/server.key
+    ports:
+      - target: 8090
+        published: "${HSM_PORT:-8090}"
+        host_ip: "${HSM_ACCOUNTS_BIND_IP:-127.0.0.1}"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: "${HSM_AUTH_STATE_DIR:?Set HSM_AUTH_STATE_DIR to a private web-writable directory}"
+        target: /run/hsm-accounts
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${HSM_TLS_CERT_FILE:?Set HSM_TLS_CERT_FILE to the server certificate chain}"
+        target: /run/hsm-tls/server.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: "${HSM_TLS_KEY_FILE:?Set HSM_TLS_KEY_FILE to the server private key}"
+        target: /run/hsm-tls/server.key
+        read_only: true
+        bind:
+          create_host_path: false
