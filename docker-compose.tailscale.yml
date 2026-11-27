@@ -1,0 +1,16 @@
+services:
+  web:
+    environment:
+      HSM_AUTH_CONFIG: /etc/home-server-manager/auth.json
+    ports:
+      - target: 8090
+        published: "${HSM_PORT:-8090}"
+        host_ip: "${HSM_TAILSCALE_IP:?Set HSM_TAILSCALE_IP to this host's Tailscale IPv4 address}"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: "${HSM_AUTH_FILE:?Set HSM_AUTH_FILE to your private auth JSON file}"
+        target: /etc/home-server-manager/auth.json
+        read_only: true
+        bind:
+          create_host_path: false

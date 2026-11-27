@@ -17,6 +17,19 @@ Open **Setup**, choose **Add selected** or **Add all available**, and view the d
 
 Set a private `HSM_AUTH_CONFIG` with an operator account to require sign-in. Set `HSM_PORT` to choose a different host loopback port.
 
+## Direct access over Tailscale
+
+On a trusted tailnet, the optional Compose override adds the host's Tailscale IPv4 address to the dashboard's existing loopback binding. Use an auth JSON file outside the checkout, readable by the web container's user. To use Setup, include an operator account with a `password_hash` in the file and leave `HSM_SETUP` enabled.
+
+```sh
+export HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
+export HSM_TAILSCALE_IP="$(tailscale ip -4)"
+export HSM_AUTH_FILE=/path/to/private/auth.json
+docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d --build
+```
+
+From an approved tailnet device, open `http://<host>:8090/setup` and sign in. If you set `HSM_PORT`, use that port in the URL. The override publishes HTTP. See [Authenticated controls](#authenticated-controls) for HTTPS deployment.
+
 ## Disposable fixture
 
 For the original read-only demo with sample entries and anonymous loopback viewing, run these commands in a separate Compose project with a free host port.

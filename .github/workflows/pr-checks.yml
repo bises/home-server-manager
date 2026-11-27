@@ -22,6 +22,18 @@ jobs:
         run: |
           go vet ./...
           go test ./...
+      - name: Verify the Tailscale Compose override
+        env:
+          HSM_DOCKER_GID: "0"
+          HSM_TAILSCALE_IP: "100.64.0.10"
+          HSM_AUTH_FILE: /tmp/example-hsm-auth.json
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.tailscale.yml config --format json |
+            jq -e '
+              (.services.web.ports | map(.host_ip) | sort) == ["100.64.0.10", "127.0.0.1"] and
+              .services.web.environment.HSM_AUTH_CONFIG == "/etc/home-server-manager/auth.json" and
+              any(.services.web.volumes[]; .target == "/etc/home-server-manager/auth.json" and .read_only == true and .bind.create_host_path == false)
+            ' >/dev/null
       - name: Build and start the Compose services
         run: |
           export HSM_DOCKER_GID="$(stat -c '%g' /var/run/docker.sock)"
