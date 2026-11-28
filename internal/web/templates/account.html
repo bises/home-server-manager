@@ -1,0 +1,31 @@
+{{define "content"}}
+<section class="panel login-box">
+  <h1>{{.Title}}</h1>
+  {{if .Error}}
+  <div class="banner banner-warn" role="alert">{{.Error}}</div>
+  {{end}}
+  {{if .Setup}}
+  <form method="post" action="/account/setup" class="login-form">
+    <label for="setup-code">One-time setup code</label>
+    <input id="setup-code" name="setup_code" type="password" required autocomplete="one-time-code">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" required autocomplete="username"
+           autocapitalize="none" maxlength="64" aria-describedby="username-help">
+    <small id="username-help">Start with a letter or number. You can also use periods, underscores and hyphens.</small>
+  {{else}}
+  <form method="post" action="/account/password" class="login-form">
+    <input type="hidden" name="csrf_token" value="{{.User.CSRFToken}}">
+    <input type="hidden" name="username" value="{{.User.Username}}" autocomplete="username">
+    <label for="current-password">Current password</label>
+    <input id="current-password" name="current_password" type="password" required autocomplete="current-password">
+  {{end}}
+    <label for="password">New password</label>
+    <input id="password" name="password" type="password" required autocomplete="new-password"
+           aria-describedby="password-help">
+    <small id="password-help">Use {{.MinPassword}}–{{.MaxPassword}} characters.{{if not .Setup}} You’ll sign in again after saving.{{end}}</small>
+    <label for="confirm-password">Confirm new password</label>
+    <input id="confirm-password" name="confirm_password" type="password" required autocomplete="new-password">
+    <button class="btn" type="submit">{{if .Setup}}Create account{{else}}Save password{{end}}</button>
+  </form>
+</section>
+{{end}}

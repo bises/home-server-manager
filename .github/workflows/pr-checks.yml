@@ -37,6 +37,12 @@ jobs:
               .services.web.environment.HSM_AUTH_CONFIG == "/etc/home-server-manager/auth.json" and
               any(.services.web.volumes[]; .target == "/etc/home-server-manager/auth.json" and .read_only == true and .bind.create_host_path == false)
             ' >/dev/null
+      - name: Validate the browser accounts Compose override
+        env:
+          HSM_AUTH_STATE_DIR: /tmp/example-hsm-accounts
+          HSM_TLS_CERT_FILE: /tmp/example-hsm-tls/server.crt
+          HSM_TLS_KEY_FILE: /tmp/example-hsm-tls/server.key
+        run: docker compose -f docker-compose.yml -f docker-compose.accounts.yml config --quiet
       - name: Build and start the Compose services
         run: |
           docker compose up -d --build

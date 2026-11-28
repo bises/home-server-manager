@@ -28,7 +28,32 @@ export HSM_AUTH_FILE=/path/to/private/auth.json
 docker compose -f docker-compose.yml -f docker-compose.tailscale.yml up -d --build
 ```
 
-From an approved tailnet device, open `http://<host>:8090/setup` and sign in. If you set `HSM_PORT`, use that port in the URL. The override publishes HTTP. See [Authenticated controls](#authenticated-controls) for HTTPS deployment.
+From an approved tailnet device, open `http://<host>:8090/setup` and sign in. If you set `HSM_PORT`, use that port in the URL. This override publishes HTTP. See [Browser account setup](#browser-account-setup) for the HTTPS option with password management.
+
+## Browser account setup
+
+Use `docker-compose.accounts.yml` with the base Compose file for installer-authorized first-run setup and self-service password changes. The dashboard serves HTTPS directly. Use a certificate trusted by your browser for the dashboard hostname. Configure these values in your private deployment environment.
+
+| Variable | Value |
+| --- | --- |
+| `HSM_DOCKER_GID` | Group ID from `stat -c '%g' /var/run/docker.sock` |
+| `HSM_AUTH_STATE_DIR` | Absolute path outside the checkout to a private directory writable by the web service user |
+| `HSM_TLS_CERT_FILE` | Absolute path to a readable PEM certificate chain |
+| `HSM_TLS_KEY_FILE` | Absolute path to the corresponding PEM private key, readable by the web service user |
+| `HSM_ACCOUNTS_BIND_IP` | Optional host address for access from another device, such as the host's Tailscale IPv4 address. Defaults to loopback. |
+| `HSM_PORT` | Optional host port. Defaults to `8090`. |
+
+Keep the state directory private to the web service user and run a single web replica against it. Keep the certificate and key in a separate host directory. The override mounts them read-only. For a new installation, create the setup code in a private terminal on the Docker host. The web container creates `auth.json` in the mounted state directory as its own user.
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.accounts.yml run --build --rm --no-deps web \
+  home-server-manager auth-init --auth-config /run/hsm-accounts/auth.json
+docker compose -f docker-compose.yml -f docker-compose.accounts.yml up -d --build
+```
+
+Open the dashboard at `https://<certificate-hostname>:8090/`. Enter the code and choose an operator username and password. The code expires after 20 minutes and is consumed when the account is saved. Keep the code out of shared logs and CI output. If it expires before use, initialize a fresh private state directory and deploy with its path. The init command refuses to overwrite an existing file.
+
+For an existing installation, copy its private auth JSON to `auth.json` in the state directory with the web user's ownership and skip code generation. Signed-in users can use **Change password**, confirm their current password, and sign in again after saving. Changing a password signs out that account's browser sessions. Keep the state directory across updates to retain accounts and machine credentials.
 
 ## Disposable fixture
 
@@ -59,4 +84,4 @@ go test ./...
 go build ./cmd/home-server-manager
 ```
 
-The supported Go command is `./cmd/home-server-manager`, with `broker` and `web` subcommands. See the [disposable test fixture](fixtures/README.md) and [rewrite design](docs/designs/home-server-manager-rewrite.md).
+The supported Go command is `./cmd/home-server-manager`, with `broker`, `web` and `auth-init` subcommands. See the [disposable test fixture](fixtures/README.md) and [rewrite design](docs/designs/home-server-manager-rewrite.md).

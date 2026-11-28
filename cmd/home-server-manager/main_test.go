@@ -39,6 +39,13 @@ func TestRunWebRejectsEmptyAuthConfigWithoutSetup(t *testing.T) {
 	}
 }
 
+func TestRunWebRequiresHTTPSForManagedAccounts(t *testing.T) {
+	err := runWeb(context.Background(), []string{"--manage-auth", "--auth-config", "auth.json", "--tls-cert=", "--tls-key="})
+	if err == nil || !strings.Contains(err.Error(), "managed auth requires HTTPS") {
+		t.Fatalf("expected managed authentication over HTTP to fail, got %v", err)
+	}
+}
+
 func TestEndToEndUnixSocketBrokerAndWeb(t *testing.T) {
 	var dockerDown atomic.Bool
 
